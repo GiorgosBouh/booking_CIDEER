@@ -1,0 +1,60 @@
+export default {
+  async fetch(request, env) {
+    if (request.method === "OPTIONS") return new Response("", { headers: corsHeaders() });
+
+    if (request.method !== "POST") {
+      return new Response("Method Not Allowed", { status: 405, headers: corsHeaders() });
+    }
+
+    const { name, email, date, time, notes } = await request.json();
+
+    // basic validation
+    if (!name || !email || !date || !time || !notes) {
+      return new Response("Missing fields", { status: 400, headers: corsHeaders() });
+    }
+
+    const subject = `ΚΕΔΕΕΑ – Νέο αίτημα ραντεβού: ${name} (${date} ${time})`;
+    const text = [
+      "ΚΕΔΕΕΑ | Μητροπολιτικό Κολέγιο | Θεσσαλονίκη",
+      "",
+      "Νέο αίτημα/καταγραφή ραντεβού",
+      `Ονοματεπώνυμο: ${name}`,
+      `Email: ${email}`,
+      `Ημερομηνία: ${date}`,
+      `Ώρα: ${time}`,
+      "",
+      "Σημειώσεις:",
+      notes
+    ].join("\n");
+
+    // Στέλνουμε ΠΡΟΣ το ιδρυματικό inbox σου
+    const to = env.TO_EMAIL; // π.χ. cideer_thess@mitropolitiko.edu.gr
+
+    const resp = await fetch("https://api.mailchannels.net/tx/v1/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        personalizations: [{ to: [{ email: to }] }],
+        from: { email: env.FROM_EMAIL, name: "ΚΕΔΕΕΑ – Ραντεβού" },
+        subject,
+        content: [{ type: "text/plain", value: text }],
+        reply_to: { email, name }
+      })
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      return new Response(`Email failed: ${err}`, { status: 500, headers: corsHeaders() });
+    }
+
+    return new Response("OK", { status: 200, headers: corsHeaders() });
+  }
+};
+
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
