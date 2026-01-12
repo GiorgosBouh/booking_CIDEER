@@ -20,8 +20,6 @@
       --ok:#16a34a;
     }
     *{box-sizing:border-box}
-    html, body { overflow-x: hidden; } /* FIX overflow δεξιά */
-
     body{
       margin:0;
       font-family:"Inter","Segoe UI",system-ui,sans-serif;
@@ -43,11 +41,11 @@
       padding:0 20px;
       display:grid;
       gap:20px;
-      grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); /* FIX responsive */
+      grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+      align-items:start;
     }
-    @media (max-width: 600px){
-      main{ grid-template-columns: 1fr; padding: 0 12px; }
-    }
+    /* κρίσιμο: να μη “σπάει” grid item και να μην ξεχειλώνει */
+    main > * { min-width: 0; }
 
     .card{
       background:var(--card);
@@ -55,7 +53,7 @@
       padding:20px;
       box-shadow:0 16px 30px rgba(15,23,42,.08);
       border:1px solid var(--border);
-      min-width:0; /* FIX: επιτρέπει shrink μέσα στο grid */
+      overflow:hidden; /* FIX: να μη βγαίνει δεξιά */
     }
     .card h2{margin:0 0 8px;font-size:20px}
 
@@ -84,6 +82,17 @@
     button:hover{background:var(--primary-dark);transform:translateY(-1px)}
     button:disabled{opacity:.6;cursor:not-allowed;transform:none}
 
+    .btn-outline{
+      background:transparent;
+      color:var(--primary);
+      border:1px solid var(--border);
+      padding:10px 12px;
+    }
+    .btn-danger{
+      background:var(--danger);
+    }
+    .btn-danger:hover{ background:#b91c1c; }
+
     .grid-2{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
     .hint{color:var(--muted);font-size:13px;margin-top:8px}
     .status{margin-top:12px;font-weight:800}
@@ -105,8 +114,13 @@
       justify-content:space-between;
       gap:12px;
       margin-bottom:10px;
+      flex-wrap:wrap;
     }
-    .calendar-header .nav{display:flex;gap:8px;flex-wrap:wrap}
+    .calendar-header .nav{
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
     .calendar-header .nav button{
       margin:0;
       background:transparent;
@@ -117,12 +131,12 @@
 
     .calendar-grid{
       display:grid;
-      grid-template-columns:repeat(7,1fr);
+      grid-template-columns:repeat(7, minmax(0, 1fr)); /* FIX: να χωράει πάντα */
       gap:6px;
       text-align:center;
       font-size:13px;
       width:100%;
-      min-width:0; /* FIX */
+      max-width:100%;
     }
     .calendar-cell{
       padding:10px 6px;
@@ -132,7 +146,7 @@
       min-height:58px;
       cursor:pointer;
       user-select:none;
-      overflow:hidden; /* FIX */
+      min-width:0;
     }
     .calendar-cell.header{
       background:transparent;
@@ -159,6 +173,7 @@
       display:block;
       font-weight:800;
       margin-bottom:4px;
+      font-variant-numeric: tabular-nums;
     }
 
     .badge{
@@ -180,28 +195,57 @@
       padding:12px 14px;
       background:#fff;
     }
-    .booking-item h3{margin:0 0 6px;font-size:16px}
+    .booking-item h3{
+      margin:0 0 6px;
+      font-size:16px;
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+      flex-wrap:wrap;
+    }
     .booking-meta{display:grid;gap:4px;font-size:13px;color:var(--muted)}
-
-    .booking-actions{
+    .row-actions{
       display:flex;
       gap:8px;
-      flex-wrap:wrap;
       margin-top:10px;
+      flex-wrap:wrap;
     }
-    .btn-small{
-      margin:0;
+    .small{
+      margin-top:0;
       padding:8px 10px;
       border-radius:10px;
-      font-size:13px;
-      background:transparent;
-      border:1px solid var(--border);
-      color:var(--text);
       font-weight:800;
+      font-size:13px;
     }
-    .btn-small:hover{transform:none}
-    .btn-edit{border-color:rgba(43,89,195,.35); color:var(--primary)}
-    .btn-del{border-color:rgba(220,38,38,.35); color:var(--danger)}
+
+    /* Modal */
+    .modal-backdrop{
+      position:fixed;
+      inset:0;
+      background:rgba(15,23,42,.45);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      z-index:9999;
+    }
+    .modal{
+      width:min(520px, 100%);
+      background:#fff;
+      border-radius:18px;
+      border:1px solid var(--border);
+      box-shadow:0 24px 60px rgba(15,23,42,.22);
+      padding:16px;
+    }
+    .modal h3{ margin:0 0 10px; }
+    .modal .actions{
+      display:flex;
+      gap:10px;
+      justify-content:flex-end;
+      margin-top:14px;
+      flex-wrap:wrap;
+    }
   </style>
 </head>
 
@@ -218,7 +262,7 @@
       <label for="accessToken">Κωδικός πρόσβασης</label>
       <input id="accessToken" type="password" placeholder="Εισάγετε τον κωδικό" autocomplete="current-password" />
 
-      <div class="hint">Ο κωδικός απαιτείται για προβολή και καταχώρηση δεδομένων.</div>
+      <div class="hint">Ο κωδικός απαιτείται για προβολή/καταχώρηση. (Π.χ. <b>ciderr_bouch</b>)</div>
       <div class="privacy">
         Τα στοιχεία προστατεύονται με ιδιωτικό κωδικό πρόσβασης. Μοιράστε τον μόνο με τους εξουσιοδοτημένους κλινικούς εκπαιδευτές.
       </div>
@@ -260,9 +304,8 @@
             <input name="date" type="date" required />
           </div>
           <div>
-            <label>Ώρα</label>
+            <label>Ώρα (24ωρη)</label>
             <input name="time" type="time" required />
-            <div class="hint">Μορφή: 24ωρο (π.χ. 09:30, 16:15)</div>
           </div>
         </div>
 
@@ -287,21 +330,50 @@
 
     <section class="card">
       <div class="calendar-header">
-        <h2>Ημερολόγιο</h2>
+        <div>
+          <h2 style="margin:0">Ημερολόγιο</h2>
+          <div class="hint" id="monthLabel" style="margin-top:6px"></div>
+        </div>
         <div class="nav">
           <button type="button" id="prevMonth">◀</button>
           <button type="button" id="nextMonth">▶</button>
         </div>
       </div>
 
-      <div class="hint" id="monthLabel"></div>
       <div class="calendar-grid" id="calendarGrid"></div>
       <div class="booking-list" id="bookingList"></div>
     </section>
   </main>
 
+  <!-- Modal for edit -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal">
+      <h3>Επεξεργασία ραντεβού</h3>
+      <div class="hint" id="modalInfo"></div>
+
+      <div class="grid-2" style="margin-top:10px">
+        <div>
+          <label>Ημερομηνία</label>
+          <input id="editDate" type="date" />
+        </div>
+        <div>
+          <label>Ώρα (24ωρη)</label>
+          <input id="editTime" type="time" />
+        </div>
+      </div>
+
+      <div class="actions">
+        <button type="button" class="btn-outline" id="modalCancel">Άκυρο</button>
+        <button type="button" id="modalSave">Αποθήκευση αλλαγής</button>
+      </div>
+
+      <div class="status" id="modalStatus"></div>
+    </div>
+  </div>
+
   <script>
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxYrJR-YjFahtcPheLFFw3s9ZNBc5wIpC4Aq-suTCu83F0agpGFyVvJ-L52SYZnyYK4/exec";
+    const TZ = "Europe/Athens";
 
     const accessTokenInput = document.getElementById("accessToken");
     const authStatus = document.getElementById("authStatus");
@@ -317,9 +389,21 @@
     const prevMonth = document.getElementById("prevMonth");
     const nextMonth = document.getElementById("nextMonth");
 
+    // modal
+    const modalBackdrop = document.getElementById("modalBackdrop");
+    const modalCancel = document.getElementById("modalCancel");
+    const modalSave = document.getElementById("modalSave");
+    const modalStatus = document.getElementById("modalStatus");
+    const modalInfo = document.getElementById("modalInfo");
+    const editDate = document.getElementById("editDate");
+    const editTime = document.getElementById("editTime");
+
     let bookings = [];
     let currentMonth = new Date();
     let selectedDate = null;
+
+    // current edit state
+    let editingId = null;
 
     // persist token in sessionStorage
     accessTokenInput.value = sessionStorage.getItem("accessToken") || "";
@@ -338,9 +422,7 @@
       return accessTokenInput.value.trim();
     }
 
-    // ---------- Timezone: Athens + 24h normalization ----------
-    const TZ = "Europe/Athens";
-
+    // ---------- Timezone-safe normalize (Athens, 24h) ----------
     function partsInAthens(dateObj) {
       const dtf = new Intl.DateTimeFormat("en-CA", {
         timeZone: TZ,
@@ -353,15 +435,13 @@
       });
       const parts = dtf.formatToParts(dateObj);
       const get = (type) => parts.find(p => p.type === type)?.value || "";
-      return { y: get("year"), m: get("month"), d: get("day"), hh: get("hour"), mm: get("minute") };
+      return { y:get("year"), m:get("month"), d:get("day"), hh:get("hour"), mm:get("minute") };
     }
 
     function toDateKey(v) {
       if (!v) return "";
-      const s = String(v);
-
+      const s = String(v).trim();
       if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
       const d = new Date(s);
       if (!isNaN(d.getTime())) {
         const p = partsInAthens(d);
@@ -372,28 +452,26 @@
 
     function toTimeHHMM(v) {
       if (!v) return "";
-      const s = String(v);
-
+      const s = String(v).trim();
       if (/^\d{2}:\d{2}$/.test(s)) return s;
-
       const d = new Date(s);
       if (!isNaN(d.getTime())) {
         const p = partsInAthens(d);
         return `${p.hh}:${p.mm}`;
       }
-      return s.slice(0, 5);
+      return s.slice(0,5);
     }
 
     function normalizeBookings(arr) {
       return (arr || []).map(b => ({
         ...b,
-        id: b.id != null ? String(b.id) : "",
+        id: String(b.id ?? "").trim(),
         date: toDateKey(b.date),
         time: toTimeHHMM(b.time),
         beneficiaryPhone: b.beneficiaryPhone != null ? String(b.beneficiaryPhone) : ""
       }));
     }
-    // ---------------------------------------------------------
+    // ----------------------------------------------------------
 
     function escapeHtml(s) {
       return String(s ?? "")
@@ -427,33 +505,28 @@
       });
     }
 
-    async function apiCall(action, params = {}) {
-      const u = new URL(SCRIPT_URL);
-      u.searchParams.set("token", token());
-      u.searchParams.set("action", action);
-      Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v ?? ""));
-      return await jsonp(u.toString());
-    }
-
     async function loadBookings() {
       setStatus(authStatus, "Φόρτωση…", null);
 
+      const u = new URL(SCRIPT_URL);
+      u.searchParams.set("token", token());
+      u.searchParams.set("action", "list");
+
       try {
-        const res = await apiCall("list");
+        const res = await jsonp(u.toString());
         if (!res?.ok) {
           bookings = [];
           renderCalendar();
           setStatus(authStatus, "❌ Μη έγκυρος κωδικός ή σφάλμα.", "err");
           return;
         }
-
         bookings = normalizeBookings(res.data);
         setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
         renderCalendar();
       } catch (e) {
         bookings = [];
         renderCalendar();
-        setStatus(authStatus, "⚠️ Αποτυχία φόρτωσης (JSONP).", "err");
+        setStatus(authStatus, "⚠️ Δεν ήταν δυνατή η φόρτωση (δες Console).", "err");
         console.error(e);
       }
     }
@@ -463,10 +536,11 @@
       const month = currentMonth.getMonth();
 
       const firstDay = new Date(year, month, 1);
-      const startDay = (firstDay.getDay() + 6) % 7;
+      const startDay = (firstDay.getDay() + 6) % 7; // Monday=0
       const daysInMonth = new Date(year, month + 1, 0).getDate();
 
       monthLabel.textContent = firstDay.toLocaleDateString("el-GR", { month: "long", year: "numeric" });
+
       calendarGrid.innerHTML = "";
 
       const dayLabels = ["Δ", "Τ", "Τ", "Π", "Π", "Σ", "Κ"];
@@ -486,7 +560,6 @@
       for (let day = 1; day <= daysInMonth; day++) {
         const cell = document.createElement("div");
         const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-
         const dayBookings = bookings.filter((b) => b.date === dateKey);
 
         cell.className = "calendar-cell";
@@ -523,75 +596,146 @@
         return;
       }
 
-      bookingList.innerHTML = dayBookings.map((b) => `
-        <div class="booking-item">
-          <h3>${escapeHtml(b.time)} · ${escapeHtml(b.beneficiaryName)}</h3>
-          <div class="booking-meta">
-            <div><b>ID:</b> ${escapeHtml(b.id)}</div>
-            <div>Υπηρεσία: ${escapeHtml(b.serviceType)}</div>
-            <div>Αίθουσα: ${escapeHtml(b.room)}</div>
-            <div>Κλινικός εκπαιδευτής: ${escapeHtml(b.clinician)}</div>
-            <div>Email: ${escapeHtml(b.beneficiaryEmail)}</div>
-            <div>Τηλέφωνο: ${escapeHtml(b.beneficiaryPhone)}</div>
-            ${b.notes ? `<div>Σημειώσεις: ${escapeHtml(b.notes)}</div>` : ""}
-          </div>
+      bookingList.innerHTML = dayBookings.map((b) => {
+        const idText = b.id ? `#${escapeHtml(b.id)}` : "(χωρίς id)";
+        return `
+          <div class="booking-item" data-id="${escapeHtml(b.id)}">
+            <h3>
+              <span>${escapeHtml(b.time)} · ${escapeHtml(b.beneficiaryName)} <span class="hint" style="font-weight:700"> ${idText}</span></span>
+            </h3>
+            <div class="booking-meta">
+              <div>Υπηρεσία: ${escapeHtml(b.serviceType)}</div>
+              <div>Αίθουσα: ${escapeHtml(b.room)}</div>
+              <div>Κλινικός εκπαιδευτής: ${escapeHtml(b.clinician)}</div>
+              <div>Email: ${escapeHtml(b.beneficiaryEmail)}</div>
+              <div>Τηλέφωνο: ${escapeHtml(b.beneficiaryPhone)}</div>
+              ${b.notes ? `<div>Σημειώσεις: ${escapeHtml(b.notes)}</div>` : ""}
+            </div>
 
-          <div class="booking-actions">
-            <button class="btn-small btn-edit" type="button" onclick="editBooking('${escapeHtml(b.id)}')">✏️ Αλλαγή ώρας/ημ.</button>
-            <button class="btn-small btn-del" type="button" onclick="deleteBooking('${escapeHtml(b.id)}')">🗑 Διαγραφή</button>
+            <div class="row-actions">
+              <button type="button" class="small btn-outline" onclick="openEdit('${escapeHtml(b.id)}')">Αλλαγή ώρας/ημ.</button>
+              <button type="button" class="small btn-danger" onclick="deleteBooking('${escapeHtml(b.id)}')">Διαγραφή</button>
+            </div>
           </div>
-        </div>
-      `).join("");
+        `;
+      }).join("");
     }
 
-    // --- Edit/Delete exposed to window for inline onclick ---
-    window.deleteBooking = async function(id) {
-      if (!id) return alert("Λείπει το id.");
-      const ok = confirm(`Διαγραφή ραντεβού με id: ${id} ;`);
-      if (!ok) return;
+    // ---------- CRUD actions ----------
+    async function addBooking(data) {
+      const u = new URL(SCRIPT_URL);
+      u.searchParams.set("token", token());
+      u.searchParams.set("action", "add");
+      Object.entries(data).forEach(([k,v]) => u.searchParams.set(k, v ?? ""));
+      return await jsonp(u.toString());
+    }
+
+    async function updateBooking(id, patch) {
+      const u = new URL(SCRIPT_URL);
+      u.searchParams.set("token", token());
+      u.searchParams.set("action", "update");
+      u.searchParams.set("id", id);
+      Object.entries(patch).forEach(([k,v]) => u.searchParams.set(k, v ?? ""));
+      return await jsonp(u.toString());
+    }
+
+    async function removeBooking(id) {
+      const u = new URL(SCRIPT_URL);
+      u.searchParams.set("token", token());
+      u.searchParams.set("action", "delete");
+      u.searchParams.set("id", id);
+      return await jsonp(u.toString());
+    }
+
+    // expose globally for inline onclick
+    window.openEdit = (id) => {
+      const cleanId = String(id ?? "").trim();
+      const item = bookings.find(x => String(x.id) === cleanId);
+      if (!cleanId) {
+        alert("Αυτό το ραντεβού δεν έχει id στο sheet, άρα δεν μπορεί να γίνει αλλαγή/διαγραφή. Βάλε id στη γραμμή του sheet.");
+        return;
+      }
+      if (!item) {
+        alert("Δεν βρέθηκε το ραντεβού. Κάνε Ανανέωση.");
+        return;
+      }
+
+      editingId = cleanId;
+      editDate.value = item.date || "";
+      editTime.value = item.time || "";
+      modalInfo.textContent = `Ραντεβού: ${item.beneficiaryName} (${cleanId})`;
+      setStatus(modalStatus, "", null);
+
+      modalBackdrop.style.display = "flex";
+    };
+
+    window.deleteBooking = async (id) => {
+      const cleanId = String(id ?? "").trim();
+      if (!cleanId) {
+        alert("Αυτό το ραντεβού δεν έχει id στο sheet, άρα δεν μπορεί να γίνει διαγραφή. Βάλε id στη γραμμή του sheet.");
+        return;
+      }
+      if (!confirm(`Διαγραφή ραντεβού #${cleanId};`)) return;
 
       try {
-        const res = await apiCall("delete", { id });
-        if (!res?.ok) return alert(res?.error || "Σφάλμα διαγραφής.");
+        const res = await removeBooking(cleanId);
+        if (!res?.ok) throw new Error(res?.error || "Delete failed");
         await loadBookings();
       } catch (e) {
+        alert("Σφάλμα διαγραφής: " + (e?.message || e));
         console.error(e);
-        alert("Αποτυχία διαγραφής (JSONP).");
       }
     };
 
-    window.editBooking = async function(id) {
-      if (!id) return alert("Λείπει το id.");
-      const b = bookings.find(x => String(x.id) === String(id));
-      if (!b) return alert("Δεν βρέθηκε το ραντεβού.");
+    modalCancel.addEventListener("click", () => {
+      modalBackdrop.style.display = "none";
+      editingId = null;
+    });
 
-      const newDate = prompt("Νέα ημερομηνία (YYYY-MM-DD) ή Enter για να μείνει ίδια:", b.date || "");
-      if (newDate === null) return; // cancel
-      const dateVal = (newDate || b.date || "").trim();
-      if (dateVal && !/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) return alert("Λάθος ημερομηνία. Θέλω YYYY-MM-DD.");
+    modalBackdrop.addEventListener("click", (e) => {
+      if (e.target === modalBackdrop) {
+        modalBackdrop.style.display = "none";
+        editingId = null;
+      }
+    });
 
-      const newTime = prompt("Νέα ώρα (HH:MM) ή Enter για να μείνει ίδια:", b.time || "");
-      if (newTime === null) return; // cancel
-      const timeVal = (newTime || b.time || "").trim();
-      if (timeVal && !/^\d{2}:\d{2}$/.test(timeVal)) return alert("Λάθος ώρα. Θέλω HH:MM (24ωρο).");
+    modalSave.addEventListener("click", async () => {
+      if (!editingId) return;
 
-      // Αν δεν άλλαξε τίποτα, φύγε
-      if (dateVal === b.date && timeVal === b.time) return;
+      const newDate = (editDate.value || "").trim();
+      const newTime = (editTime.value || "").trim();
+
+      if (!newDate || !newTime) {
+        setStatus(modalStatus, "❌ Συμπλήρωσε ημερομηνία και ώρα.", "err");
+        return;
+      }
+
+      setStatus(modalStatus, "Αποθήκευση…", null);
+      modalSave.disabled = true;
 
       try {
-        const res = await apiCall("update", { id, date: dateVal, time: timeVal });
-        if (!res?.ok) return alert(res?.error || "Σφάλμα ενημέρωσης.");
-        await loadBookings();
-        // κρατάμε να φαίνεται η ημέρα που ενημερώθηκε
-        selectedDate = dateVal || selectedDate;
-        renderCalendar();
-      } catch (e) {
-        console.error(e);
-        alert("Αποτυχία ενημέρωσης (JSONP).");
-      }
-    };
+        const res = await updateBooking(editingId, { date: newDate, time: newTime });
+        if (!res?.ok) throw new Error(res?.error || "Update failed");
 
-    // --- Create (add) ---
+        setStatus(modalStatus, "✅ Έγινε η αλλαγή.", "ok");
+        await loadBookings();
+
+        // keep selection
+        if (selectedDate) renderBookingsForDate(selectedDate);
+
+        setTimeout(() => {
+          modalBackdrop.style.display = "none";
+          editingId = null;
+        }, 450);
+      } catch (e) {
+        setStatus(modalStatus, "❌ " + (e?.message || e), "err");
+        console.error(e);
+      } finally {
+        modalSave.disabled = false;
+      }
+    });
+    // ----------------------------------
+
     bookingForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       setStatus(formStatus, "Αποθήκευση…", null);
@@ -599,33 +743,14 @@
 
       const data = Object.fromEntries(new FormData(event.target).entries());
 
-      // enforce formats
-      const d = String(data.date || "").trim();
-      const t = String(data.time || "").trim();
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
-        setStatus(formStatus, "❌ Λάθος ημερομηνία.", "err");
-        saveBtn.disabled = false;
-        return;
-      }
-      if (!/^\d{2}:\d{2}$/.test(t)) {
-        setStatus(formStatus, "❌ Λάθος ώρα (HH:MM).", "err");
-        saveBtn.disabled = false;
-        return;
-      }
-
       try {
-        const res = await apiCall("add", data);
-        if (!res?.ok) {
-          setStatus(formStatus, `❌ ${res?.error || "Σφάλμα αποθήκευσης"}`, "err");
-          return;
-        }
-
+        const res = await addBooking(data);
+        if (!res?.ok) throw new Error(res?.error || "Σφάλμα αποθήκευσης");
         setStatus(formStatus, "✅ Η καταχώρηση αποθηκεύτηκε.", "ok");
         event.target.reset();
-
         await loadBookings();
       } catch (e) {
-        setStatus(formStatus, "❌ Αποτυχία καταχώρησης (JSONP).", "err");
+        setStatus(formStatus, "❌ " + (e?.message || e), "err");
         console.error(e);
       } finally {
         saveBtn.disabled = false;
@@ -644,7 +769,7 @@
 
     refreshBtn.addEventListener("click", loadBookings);
 
-    // initial
+    // initial load
     loadBookings();
   </script>
 </body>
