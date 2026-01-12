@@ -1,3 +1,10 @@
 name = "bookingciderr"
 main = "src/index.js"
 compatibility_date = "2026-01-12"
+
+kv_namespaces = [
+  { binding = "BOOKING_KV", id = "<kv-namespace-id>" }
+]
+
+[vars]
+ACCESS_TOKEN = "change-me"
