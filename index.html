@@ -20,6 +20,8 @@
       --ok:#16a34a;
     }
     *{box-sizing:border-box}
+    html, body { overflow-x: hidden; } /* FIX overflow δεξιά */
+
     body{
       margin:0;
       font-family:"Inter","Segoe UI",system-ui,sans-serif;
@@ -37,18 +39,23 @@
 
     main{
       max-width:1100px;
-      margin:18px auto 40px; /* FIX: όχι αρνητικό margin */
+      margin:18px auto 40px;
       padding:0 20px;
       display:grid;
       gap:20px;
-      grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+      grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); /* FIX responsive */
     }
+    @media (max-width: 600px){
+      main{ grid-template-columns: 1fr; padding: 0 12px; }
+    }
+
     .card{
       background:var(--card);
       border-radius:18px;
       padding:20px;
       box-shadow:0 16px 30px rgba(15,23,42,.08);
       border:1px solid var(--border);
+      min-width:0; /* FIX: επιτρέπει shrink μέσα στο grid */
     }
     .card h2{margin:0 0 8px;font-size:20px}
 
@@ -99,6 +106,7 @@
       gap:12px;
       margin-bottom:10px;
     }
+    .calendar-header .nav{display:flex;gap:8px;flex-wrap:wrap}
     .calendar-header .nav button{
       margin:0;
       background:transparent;
@@ -113,6 +121,8 @@
       gap:6px;
       text-align:center;
       font-size:13px;
+      width:100%;
+      min-width:0; /* FIX */
     }
     .calendar-cell{
       padding:10px 6px;
@@ -122,6 +132,7 @@
       min-height:58px;
       cursor:pointer;
       user-select:none;
+      overflow:hidden; /* FIX */
     }
     .calendar-cell.header{
       background:transparent;
@@ -158,6 +169,8 @@
       color:var(--primary);
       font-size:12px;
       font-weight:800;
+      max-width:100%;
+      white-space:nowrap;
     }
 
     .booking-list{display:grid;gap:12px;margin-top:12px}
@@ -169,6 +182,26 @@
     }
     .booking-item h3{margin:0 0 6px;font-size:16px}
     .booking-meta{display:grid;gap:4px;font-size:13px;color:var(--muted)}
+
+    .booking-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+    .btn-small{
+      margin:0;
+      padding:8px 10px;
+      border-radius:10px;
+      font-size:13px;
+      background:transparent;
+      border:1px solid var(--border);
+      color:var(--text);
+      font-weight:800;
+    }
+    .btn-small:hover{transform:none}
+    .btn-edit{border-color:rgba(43,89,195,.35); color:var(--primary)}
+    .btn-del{border-color:rgba(220,38,38,.35); color:var(--danger)}
   </style>
 </head>
 
@@ -229,6 +262,7 @@
           <div>
             <label>Ώρα</label>
             <input name="time" type="time" required />
+            <div class="hint">Μορφή: 24ωρο (π.χ. 09:30, 16:15)</div>
           </div>
         </div>
 
@@ -304,73 +338,71 @@
       return accessTokenInput.value.trim();
     }
 
-// -------- FIX: normalize date/time (Europe/Athens, 24h) ----------
-const TZ = "Europe/Athens";
+    // ---------- Timezone: Athens + 24h normalization ----------
+    const TZ = "Europe/Athens";
 
-function partsInAthens(dateObj) {
-  const dtf = new Intl.DateTimeFormat("en-CA", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  });
-  const parts = dtf.formatToParts(dateObj);
-  const get = (type) => parts.find(p => p.type === type)?.value || "";
-  return {
-    y: get("year"),
-    m: get("month"),
-    d: get("day"),
-    hh: get("hour"),
-    mm: get("minute"),
-  };
-}
+    function partsInAthens(dateObj) {
+      const dtf = new Intl.DateTimeFormat("en-CA", {
+        timeZone: TZ,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      });
+      const parts = dtf.formatToParts(dateObj);
+      const get = (type) => parts.find(p => p.type === type)?.value || "";
+      return { y: get("year"), m: get("month"), d: get("day"), hh: get("hour"), mm: get("minute") };
+    }
 
-function toDateKey(v) {
-  if (!v) return "";
-  const s = String(v);
+    function toDateKey(v) {
+      if (!v) return "";
+      const s = String(v);
 
-  // Already YYYY-MM-DD
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-  // ISO or any date-like string -> convert to Athens date
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) {
-    const p = partsInAthens(d);
-    return `${p.y}-${p.m}-${p.d}`;
-  }
-  return "";
-}
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        const p = partsInAthens(d);
+        return `${p.y}-${p.m}-${p.d}`;
+      }
+      return "";
+    }
 
-function toTimeHHMM(v) {
-  if (!v) return "";
-  const s = String(v);
+    function toTimeHHMM(v) {
+      if (!v) return "";
+      const s = String(v);
 
-  // Already HH:MM
-  if (/^\d{2}:\d{2}$/.test(s)) return s;
+      if (/^\d{2}:\d{2}$/.test(s)) return s;
 
-  // ISO -> convert to Athens 24h time
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) {
-    const p = partsInAthens(d);
-    return `${p.hh}:${p.mm}`;
-  }
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        const p = partsInAthens(d);
+        return `${p.hh}:${p.mm}`;
+      }
+      return s.slice(0, 5);
+    }
 
-  // fallback
-  return s.slice(0, 5);
-}
+    function normalizeBookings(arr) {
+      return (arr || []).map(b => ({
+        ...b,
+        id: b.id != null ? String(b.id) : "",
+        date: toDateKey(b.date),
+        time: toTimeHHMM(b.time),
+        beneficiaryPhone: b.beneficiaryPhone != null ? String(b.beneficiaryPhone) : ""
+      }));
+    }
+    // ---------------------------------------------------------
 
-function normalizeBookings(arr) {
-  return (arr || []).map(b => ({
-    ...b,
-    date: toDateKey(b.date),
-    time: toTimeHHMM(b.time),
-    beneficiaryPhone: b.beneficiaryPhone != null ? String(b.beneficiaryPhone) : ""
-  }));
-}
-// --------------------------------------------------------------
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
 
     function jsonp(url) {
       return new Promise((resolve, reject) => {
@@ -395,15 +427,19 @@ function normalizeBookings(arr) {
       });
     }
 
+    async function apiCall(action, params = {}) {
+      const u = new URL(SCRIPT_URL);
+      u.searchParams.set("token", token());
+      u.searchParams.set("action", action);
+      Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v ?? ""));
+      return await jsonp(u.toString());
+    }
+
     async function loadBookings() {
       setStatus(authStatus, "Φόρτωση…", null);
 
-      const u = new URL(SCRIPT_URL);
-      u.searchParams.set("token", token());
-      u.searchParams.set("action", "list");
-
       try {
-        const res = await jsonp(u.toString());
+        const res = await apiCall("list");
         if (!res?.ok) {
           bookings = [];
           renderCalendar();
@@ -412,7 +448,6 @@ function normalizeBookings(arr) {
         }
 
         bookings = normalizeBookings(res.data);
-
         setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
         renderCalendar();
       } catch (e) {
@@ -478,15 +513,6 @@ function normalizeBookings(arr) {
       else bookingList.innerHTML = `<div class="hint">Επιλέξτε ημέρα για να δείτε τις καταχωρήσεις.</div>`;
     }
 
-    function escapeHtml(s) {
-      return String(s ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
     function renderBookingsForDate(dateKey) {
       const dayBookings = bookings
         .filter((b) => b.date === dateKey)
@@ -501,6 +527,7 @@ function normalizeBookings(arr) {
         <div class="booking-item">
           <h3>${escapeHtml(b.time)} · ${escapeHtml(b.beneficiaryName)}</h3>
           <div class="booking-meta">
+            <div><b>ID:</b> ${escapeHtml(b.id)}</div>
             <div>Υπηρεσία: ${escapeHtml(b.serviceType)}</div>
             <div>Αίθουσα: ${escapeHtml(b.room)}</div>
             <div>Κλινικός εκπαιδευτής: ${escapeHtml(b.clinician)}</div>
@@ -508,10 +535,63 @@ function normalizeBookings(arr) {
             <div>Τηλέφωνο: ${escapeHtml(b.beneficiaryPhone)}</div>
             ${b.notes ? `<div>Σημειώσεις: ${escapeHtml(b.notes)}</div>` : ""}
           </div>
+
+          <div class="booking-actions">
+            <button class="btn-small btn-edit" type="button" onclick="editBooking('${escapeHtml(b.id)}')">✏️ Αλλαγή ώρας/ημ.</button>
+            <button class="btn-small btn-del" type="button" onclick="deleteBooking('${escapeHtml(b.id)}')">🗑 Διαγραφή</button>
+          </div>
         </div>
       `).join("");
     }
 
+    // --- Edit/Delete exposed to window for inline onclick ---
+    window.deleteBooking = async function(id) {
+      if (!id) return alert("Λείπει το id.");
+      const ok = confirm(`Διαγραφή ραντεβού με id: ${id} ;`);
+      if (!ok) return;
+
+      try {
+        const res = await apiCall("delete", { id });
+        if (!res?.ok) return alert(res?.error || "Σφάλμα διαγραφής.");
+        await loadBookings();
+      } catch (e) {
+        console.error(e);
+        alert("Αποτυχία διαγραφής (JSONP).");
+      }
+    };
+
+    window.editBooking = async function(id) {
+      if (!id) return alert("Λείπει το id.");
+      const b = bookings.find(x => String(x.id) === String(id));
+      if (!b) return alert("Δεν βρέθηκε το ραντεβού.");
+
+      const newDate = prompt("Νέα ημερομηνία (YYYY-MM-DD) ή Enter για να μείνει ίδια:", b.date || "");
+      if (newDate === null) return; // cancel
+      const dateVal = (newDate || b.date || "").trim();
+      if (dateVal && !/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) return alert("Λάθος ημερομηνία. Θέλω YYYY-MM-DD.");
+
+      const newTime = prompt("Νέα ώρα (HH:MM) ή Enter για να μείνει ίδια:", b.time || "");
+      if (newTime === null) return; // cancel
+      const timeVal = (newTime || b.time || "").trim();
+      if (timeVal && !/^\d{2}:\d{2}$/.test(timeVal)) return alert("Λάθος ώρα. Θέλω HH:MM (24ωρο).");
+
+      // Αν δεν άλλαξε τίποτα, φύγε
+      if (dateVal === b.date && timeVal === b.time) return;
+
+      try {
+        const res = await apiCall("update", { id, date: dateVal, time: timeVal });
+        if (!res?.ok) return alert(res?.error || "Σφάλμα ενημέρωσης.");
+        await loadBookings();
+        // κρατάμε να φαίνεται η ημέρα που ενημερώθηκε
+        selectedDate = dateVal || selectedDate;
+        renderCalendar();
+      } catch (e) {
+        console.error(e);
+        alert("Αποτυχία ενημέρωσης (JSONP).");
+      }
+    };
+
+    // --- Create (add) ---
     bookingForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       setStatus(formStatus, "Αποθήκευση…", null);
@@ -519,14 +599,22 @@ function normalizeBookings(arr) {
 
       const data = Object.fromEntries(new FormData(event.target).entries());
 
-      const u = new URL(SCRIPT_URL);
-      u.searchParams.set("token", token());
-      u.searchParams.set("action", "add");
-
-      Object.entries(data).forEach(([k, v]) => u.searchParams.set(k, v ?? ""));
+      // enforce formats
+      const d = String(data.date || "").trim();
+      const t = String(data.time || "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+        setStatus(formStatus, "❌ Λάθος ημερομηνία.", "err");
+        saveBtn.disabled = false;
+        return;
+      }
+      if (!/^\d{2}:\d{2}$/.test(t)) {
+        setStatus(formStatus, "❌ Λάθος ώρα (HH:MM).", "err");
+        saveBtn.disabled = false;
+        return;
+      }
 
       try {
-        const res = await jsonp(u.toString());
+        const res = await apiCall("add", data);
         if (!res?.ok) {
           setStatus(formStatus, `❌ ${res?.error || "Σφάλμα αποθήκευσης"}`, "err");
           return;
@@ -556,6 +644,7 @@ function normalizeBookings(arr) {
 
     refreshBtn.addEventListener("click", loadBookings);
 
+    // initial
     loadBookings();
   </script>
 </body>
