@@ -283,7 +283,6 @@
   </main>
 
   <script>
-  // 1) ΒΑΛΕ ΕΔΩ ΤΟ WEB APP URL ΣΟΥ
   const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxYrJR-YjFahtcPheLFFw3s9ZNBc5wIpC4Aq-suTCu83F0agpGFyVvJ-L52SYZnyYK4/exec";
 
   const accessTokenInput = document.getElementById("accessToken");
@@ -304,7 +303,6 @@
   let currentMonth = new Date();
   let selectedDate = null;
 
-  // persist token in sessionStorage
   accessTokenInput.value = sessionStorage.getItem("accessToken") || "";
   accessTokenInput.addEventListener("input", () => {
     sessionStorage.setItem("accessToken", accessTokenInput.value.trim());
@@ -321,46 +319,52 @@
     return accessTokenInput.value.trim();
   }
 
-  function buildUrl() {
-    // Apps Script auth via query param: ?token=...
-    const t = token();
-    const u = new URL(SCRIPT_URL);
-    if (t) u.searchParams.set("token", t);
-    return u.toString();
+  function jsonp(url) {
+    return new Promise((resolve, reject) => {
+      const cb = "cb_" + Math.random().toString(36).slice(2);
+      const u = new URL(url);
+      u.searchParams.set("callback", cb);
+
+      window[cb] = (data) => {
+        delete window[cb];
+        script.remove();
+        resolve(data);
+      };
+
+      const script = document.createElement("script");
+      script.src = u.toString();
+      script.onerror = () => {
+        delete window[cb];
+        script.remove();
+        reject(new Error("JSONP load failed"));
+      };
+      document.body.appendChild(script);
+    });
   }
 
   async function loadBookings() {
     setStatus(authStatus, "Φόρτωση…", null);
-    bookingList.innerHTML = "";
+
+    const u = new URL(SCRIPT_URL);
+    u.searchParams.set("token", token());
+    u.searchParams.set("action", "list");
 
     try {
-      const res = await fetch(buildUrl(), { method: "GET" });
-      const text = await res.text();
-
-      if (!res.ok) {
-        setStatus(authStatus, `❌ Σφάλμα: ${res.status}`, "err");
-        console.error(text);
+      const res = await jsonp(u.toString());
+      if (!res?.ok) {
         bookings = [];
         renderCalendar();
+        setStatus(authStatus, "❌ Μη έγκυρος κωδικός ή σφάλμα.", "err");
         return;
       }
-
-      // Apps Script σε Unauthorized συνήθως επιστρέφει απλό text
-      if (text.trim() === "Unauthorized") {
-        bookings = [];
-        renderCalendar();
-        setStatus(authStatus, "❌ Μη έγκυρος κωδικός πρόσβασης.", "err");
-        return;
-      }
-
-      bookings = JSON.parse(text);
+      bookings = res.data || [];
       setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
       renderCalendar();
-    } catch (err) {
+    } catch (e) {
       bookings = [];
       renderCalendar();
-      setStatus(authStatus, "⚠️ Δεν ήταν δυνατή η φόρτωση (δες Console).", "err");
-      console.error(err);
+      setStatus(authStatus, "⚠️ Αποτυχία φόρτωσης (JSONP).", "err");
+      console.error(e);
     }
   }
 
@@ -369,7 +373,7 @@
     const month = currentMonth.getMonth();
 
     const firstDay = new Date(year, month, 1);
-    const startDay = (firstDay.getDay() + 6) % 7; // Monday=0
+    const startDay = (firstDay.getDay() + 6) % 7;
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
     monthLabel.textContent = firstDay.toLocaleDateString("el-GR", { month: "long", year: "numeric" });
@@ -391,7 +395,6 @@
 
     for (let day = 1; day <= daysInMonth; day++) {
       const cell = document.createElement("div");
-
       const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
       const dayBookings = bookings.filter((b) => b.date === dateKey);
 
@@ -414,11 +417,8 @@
       calendarGrid.appendChild(cell);
     }
 
-    if (selectedDate) {
-      renderBookingsForDate(selectedDate);
-    } else {
-      bookingList.innerHTML = `<div class="hint">Επιλέξτε ημέρα για να δείτε τις καταχωρήσεις.</div>`;
-    }
+    if (selectedDate) renderBookingsForDate(selectedDate);
+    else bookingList.innerHTML = `<div class="hint">Επιλέξτε ημέρα για να δείτε τις καταχωρήσεις.</div>`;
   }
 
   function escapeHtml(s) {
@@ -462,31 +462,24 @@
 
     const data = Object.fromEntries(new FormData(event.target).entries());
 
+    const u = new URL(SCRIPT_URL);
+    u.searchParams.set("token", token());
+    u.searchParams.set("action", "add");
+
+    Object.entries(data).forEach(([k, v]) => u.searchParams.set(k, v ?? ""));
+
     try {
-      const res = await fetch(buildUrl(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data)
-      });
-
-      const text = await res.text();
-
-      if (!res.ok) {
-        setStatus(formStatus, `❌ Σφάλμα: ${res.status}`, "err");
-        console.error(text);
+      const res = await jsonp(u.toString());
+      if (!res?.ok) {
+        setStatus(formStatus, `❌ ${res?.error || "Σφάλμα αποθήκευσης"}`, "err");
         return;
       }
-      if (text.trim() === "Unauthorized") {
-        setStatus(formStatus, "❌ Μη έγκυρος κωδικός πρόσβασης.", "err");
-        return;
-      }
-
       setStatus(formStatus, "✅ Η καταχώρηση αποθηκεύτηκε.", "ok");
       event.target.reset();
       await loadBookings();
-    } catch (err) {
-      setStatus(formStatus, `❌ ${err?.message || "Αποτυχία αποθήκευσης."}`, "err");
-      console.error(err);
+    } catch (e) {
+      setStatus(formStatus, "❌ Αποτυχία καταχώρησης (JSONP).", "err");
+      console.error(e);
     } finally {
       saveBtn.disabled = false;
     }
@@ -504,7 +497,6 @@
 
   refreshBtn.addEventListener("click", loadBookings);
 
-  // initial load
   loadBookings();
 </script>
 </body>
