@@ -283,240 +283,229 @@
   </main>
 
   <script>
-    // ✅ ΒΑΛΕ ΕΔΩ ΤΟ GOOGLE APPS SCRIPT WEB APP URL (Deploy → Web app)
-    // π.χ. https://script.google.com/macros/s/AKfycbxxxxxxxxxxxx/exec
-    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxYrJR-YjFahtcPheLFFw3s9ZNBc5wIpC4Aq-suTCu83F0agpGFyVvJ-L52SYZnyYK4/exec"
-";
+  // 1) ΒΑΛΕ ΕΔΩ ΤΟ WEB APP URL ΣΟΥ
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxYrJR-YjFahtcPheLFFw3s9ZNBc5wIpC4Aq-suTCu83F0agpGFyVvJ-L52SYZnyYK4/exec";
 
-    const accessTokenInput = document.getElementById("accessToken");
-    const authStatus = document.getElementById("authStatus");
-    const refreshBtn = document.getElementById("refreshBtn");
+  const accessTokenInput = document.getElementById("accessToken");
+  const authStatus = document.getElementById("authStatus");
+  const refreshBtn = document.getElementById("refreshBtn");
 
-    const bookingForm = document.getElementById("bookingForm");
-    const formStatus = document.getElementById("formStatus");
-    const saveBtn = document.getElementById("saveBtn");
+  const bookingForm = document.getElementById("bookingForm");
+  const formStatus = document.getElementById("formStatus");
+  const saveBtn = document.getElementById("saveBtn");
 
-    const calendarGrid = document.getElementById("calendarGrid");
-    const bookingList = document.getElementById("bookingList");
-    const monthLabel = document.getElementById("monthLabel");
-    const prevMonth = document.getElementById("prevMonth");
-    const nextMonth = document.getElementById("nextMonth");
+  const calendarGrid = document.getElementById("calendarGrid");
+  const bookingList = document.getElementById("bookingList");
+  const monthLabel = document.getElementById("monthLabel");
+  const prevMonth = document.getElementById("prevMonth");
+  const nextMonth = document.getElementById("nextMonth");
 
-    let bookings = [];
-    let currentMonth = new Date();
-    let selectedDate = null;
+  let bookings = [];
+  let currentMonth = new Date();
+  let selectedDate = null;
 
-    // persist token in sessionStorage
-    accessTokenInput.value = sessionStorage.getItem("accessToken") || "";
-    accessTokenInput.addEventListener("input", () => {
-      sessionStorage.setItem("accessToken", accessTokenInput.value.trim());
-    });
+  // persist token in sessionStorage
+  accessTokenInput.value = sessionStorage.getItem("accessToken") || "";
+  accessTokenInput.addEventListener("input", () => {
+    sessionStorage.setItem("accessToken", accessTokenInput.value.trim());
+  });
 
-    function setStatus(el, msg, kind) {
-      el.textContent = msg || "";
-      el.classList.remove("ok", "err");
-      if (kind === "ok") el.classList.add("ok");
-      if (kind === "err") el.classList.add("err");
-    }
+  function setStatus(el, msg, kind) {
+    el.textContent = msg || "";
+    el.classList.remove("ok", "err");
+    if (kind === "ok") el.classList.add("ok");
+    if (kind === "err") el.classList.add("err");
+  }
 
-    function tokenParam() {
-      const token = accessTokenInput.value.trim();
-      return `token=${encodeURIComponent(token)}`;
-    }
+  function token() {
+    return accessTokenInput.value.trim();
+  }
 
-    async function loadBookings() {
-      setStatus(authStatus, "", null);
-      bookingList.innerHTML = "";
+  function buildUrl() {
+    // Apps Script auth via query param: ?token=...
+    const t = token();
+    const u = new URL(SCRIPT_URL);
+    if (t) u.searchParams.set("token", t);
+    return u.toString();
+  }
 
-      try {
-        if (!SCRIPT_URL || SCRIPT_URL.includes("PASTE_YOUR_WEB_APP_URL_HERE")) {
-          bookings = [];
-          renderCalendar();
-          setStatus(authStatus, "⚠️ Δεν έχει οριστεί το SCRIPT_URL (Apps Script Web App URL).", "err");
-          return;
-        }
+  async function loadBookings() {
+    setStatus(authStatus, "Φόρτωση…", null);
+    bookingList.innerHTML = "";
 
-        const res = await fetch(`${SCRIPT_URL}?${tokenParam()}`, { method: "GET" });
+    try {
+      const res = await fetch(buildUrl(), { method: "GET" });
+      const text = await res.text();
 
-        if (!res.ok) {
-          if (res.status === 401 || res.status === 403) {
-            bookings = [];
-            renderCalendar();
-            setStatus(authStatus, "❌ Μη έγκυρος κωδικός πρόσβασης.", "err");
-            return;
-          }
-          const t = await res.text();
-          throw new Error(t || `HTTP ${res.status}`);
-        }
-
-        const text = await res.text();
-
-        // Apps Script με unauthorized_() μπορεί να γυρίσει σκέτο "Unauthorized"
-        if (text.trim().toLowerCase() === "unauthorized") {
-          bookings = [];
-          renderCalendar();
-          setStatus(authStatus, "❌ Μη έγκυρος κωδικός πρόσβασης.", "err");
-          return;
-        }
-
-        bookings = JSON.parse(text);
-        setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
-        renderCalendar();
-      } catch (err) {
+      if (!res.ok) {
+        setStatus(authStatus, `❌ Σφάλμα: ${res.status}`, "err");
+        console.error(text);
         bookings = [];
         renderCalendar();
-        setStatus(authStatus, "⚠️ Δεν ήταν δυνατή η φόρτωση του ημερολογίου.", "err");
-        console.error(err);
-      }
-    }
-
-    function renderCalendar() {
-      const year = currentMonth.getFullYear();
-      const month = currentMonth.getMonth();
-
-      const firstDay = new Date(year, month, 1);
-      const startDay = (firstDay.getDay() + 6) % 7; // Monday=0
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-      monthLabel.textContent = firstDay.toLocaleDateString("el-GR", { month: "long", year: "numeric" });
-      calendarGrid.innerHTML = "";
-
-      const dayLabels = ["Δ", "Τ", "Τ", "Π", "Π", "Σ", "Κ"];
-      dayLabels.forEach((label) => {
-        const cell = document.createElement("div");
-        cell.className = "calendar-cell header";
-        cell.textContent = label;
-        calendarGrid.appendChild(cell);
-      });
-
-      for (let i = 0; i < startDay; i++) {
-        const empty = document.createElement("div");
-        empty.className = "calendar-cell empty";
-        calendarGrid.appendChild(empty);
-      }
-
-      for (let day = 1; day <= daysInMonth; day++) {
-        const cell = document.createElement("div");
-
-        const dateKey =
-          `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-
-        const dayBookings = bookings.filter((b) => String(b.date) === dateKey);
-
-        cell.className = "calendar-cell";
-        if (dayBookings.length) cell.classList.add("has-booking");
-        if (selectedDate === dateKey) cell.classList.add("active");
-
-        cell.innerHTML =
-          `<span>${day}</span>` +
-          (dayBookings.length ? `<div class="badge">${dayBookings.length} ραντεβού</div>` : "");
-
-        cell.addEventListener("click", () => {
-          selectedDate = dateKey;
-          renderCalendar();
-          renderBookingsForDate(dateKey);
-
-          const dateInput = bookingForm.querySelector('input[name="date"]');
-          if (dateInput) dateInput.value = dateKey;
-        });
-
-        calendarGrid.appendChild(cell);
-      }
-
-      if (selectedDate) {
-        renderBookingsForDate(selectedDate);
-      } else {
-        bookingList.innerHTML = `<div class="hint">Επιλέξτε ημέρα για να δείτε τις καταχωρήσεις.</div>`;
-      }
-    }
-
-    function escapeHtml(s) {
-      return String(s ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
-    function renderBookingsForDate(dateKey) {
-      const dayBookings = bookings
-        .filter((b) => String(b.date) === dateKey)
-        .sort((a, b) => String(a.time).localeCompare(String(b.time)));
-
-      if (!dayBookings.length) {
-        bookingList.innerHTML = `<div class="hint">Δεν υπάρχουν καταχωρήσεις για την επιλεγμένη ημέρα.</div>`;
         return;
       }
 
-      bookingList.innerHTML = dayBookings.map((b) => {
-        return `
-          <div class="booking-item">
-            <h3>${escapeHtml(b.time)} · ${escapeHtml(b.beneficiaryName)}</h3>
-            <div class="booking-meta">
-              <div>Υπηρεσία: ${escapeHtml(b.serviceType)}</div>
-              <div>Αίθουσα: ${escapeHtml(b.room)}</div>
-              <div>Κλινικός εκπαιδευτής: ${escapeHtml(b.clinician)}</div>
-              <div>Email: ${escapeHtml(b.beneficiaryEmail)}</div>
-              <div>Τηλέφωνο: ${escapeHtml(b.beneficiaryPhone)}</div>
-              ${b.notes ? `<div>Σημειώσεις: ${escapeHtml(b.notes)}</div>` : ""}
-            </div>
-          </div>
-        `;
-      }).join("");
+      // Apps Script σε Unauthorized συνήθως επιστρέφει απλό text
+      if (text.trim() === "Unauthorized") {
+        bookings = [];
+        renderCalendar();
+        setStatus(authStatus, "❌ Μη έγκυρος κωδικός πρόσβασης.", "err");
+        return;
+      }
+
+      bookings = JSON.parse(text);
+      setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
+      renderCalendar();
+    } catch (err) {
+      bookings = [];
+      renderCalendar();
+      setStatus(authStatus, "⚠️ Δεν ήταν δυνατή η φόρτωση (δες Console).", "err");
+      console.error(err);
+    }
+  }
+
+  function renderCalendar() {
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+
+    const firstDay = new Date(year, month, 1);
+    const startDay = (firstDay.getDay() + 6) % 7; // Monday=0
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    monthLabel.textContent = firstDay.toLocaleDateString("el-GR", { month: "long", year: "numeric" });
+    calendarGrid.innerHTML = "";
+
+    const dayLabels = ["Δ", "Τ", "Τ", "Π", "Π", "Σ", "Κ"];
+    dayLabels.forEach((label) => {
+      const cell = document.createElement("div");
+      cell.className = "calendar-cell header";
+      cell.textContent = label;
+      calendarGrid.appendChild(cell);
+    });
+
+    for (let i = 0; i < startDay; i++) {
+      const empty = document.createElement("div");
+      empty.className = "calendar-cell empty";
+      calendarGrid.appendChild(empty);
     }
 
-    bookingForm.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      setStatus(formStatus, "Αποθήκευση…", null);
-      saveBtn.disabled = true;
+    for (let day = 1; day <= daysInMonth; day++) {
+      const cell = document.createElement("div");
 
-      const data = Object.fromEntries(new FormData(event.target).entries());
+      const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      const dayBookings = bookings.filter((b) => b.date === dateKey);
 
-      try {
-        if (!SCRIPT_URL || SCRIPT_URL.includes("PASTE_YOUR_WEB_APP_URL_HERE")) {
-          throw new Error("Δεν έχει οριστεί το SCRIPT_URL (Apps Script Web App URL).");
-        }
+      cell.className = "calendar-cell";
+      if (dayBookings.length) cell.classList.add("has-booking");
+      if (selectedDate === dateKey) cell.classList.add("active");
 
-        const res = await fetch(`${SCRIPT_URL}?${tokenParam()}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        });
+      cell.innerHTML =
+        `<span>${day}</span>` +
+        (dayBookings.length ? `<div class="badge">${dayBookings.length} ραντεβού</div>` : "");
 
-        const text = await res.text();
-        if (text.trim().toLowerCase() === "unauthorized") {
-          throw new Error("Μη έγκυρος κωδικός πρόσβασης.");
-        }
+      cell.addEventListener("click", () => {
+        selectedDate = dateKey;
+        renderCalendar();
+        renderBookingsForDate(dateKey);
+        const dateInput = bookingForm.querySelector('input[name="date"]');
+        if (dateInput) dateInput.value = dateKey;
+      });
 
-        if (!res.ok) {
-          throw new Error(text || `HTTP ${res.status}`);
-        }
+      calendarGrid.appendChild(cell);
+    }
 
-        setStatus(formStatus, "✅ Η καταχώρηση αποθηκεύτηκε.", "ok");
-        event.target.reset();
-        await loadBookings();
-      } catch (err) {
-        setStatus(formStatus, `❌ ${err?.message || "Αποτυχία αποθήκευσης."}`, "err");
-        console.error(err);
-      } finally {
-        saveBtn.disabled = false;
+    if (selectedDate) {
+      renderBookingsForDate(selectedDate);
+    } else {
+      bookingList.innerHTML = `<div class="hint">Επιλέξτε ημέρα για να δείτε τις καταχωρήσεις.</div>`;
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function renderBookingsForDate(dateKey) {
+    const dayBookings = bookings
+      .filter((b) => b.date === dateKey)
+      .sort((a, b) => String(a.time).localeCompare(String(b.time)));
+
+    if (!dayBookings.length) {
+      bookingList.innerHTML = `<div class="hint">Δεν υπάρχουν καταχωρήσεις για την επιλεγμένη ημέρα.</div>`;
+      return;
+    }
+
+    bookingList.innerHTML = dayBookings.map((b) => `
+      <div class="booking-item">
+        <h3>${escapeHtml(b.time)} · ${escapeHtml(b.beneficiaryName)}</h3>
+        <div class="booking-meta">
+          <div>Υπηρεσία: ${escapeHtml(b.serviceType)}</div>
+          <div>Αίθουσα: ${escapeHtml(b.room)}</div>
+          <div>Κλινικός εκπαιδευτής: ${escapeHtml(b.clinician)}</div>
+          <div>Email: ${escapeHtml(b.beneficiaryEmail)}</div>
+          <div>Τηλέφωνο: ${escapeHtml(b.beneficiaryPhone)}</div>
+          ${b.notes ? `<div>Σημειώσεις: ${escapeHtml(b.notes)}</div>` : ""}
+        </div>
+      </div>
+    `).join("");
+  }
+
+  bookingForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setStatus(formStatus, "Αποθήκευση…", null);
+    saveBtn.disabled = true;
+
+    const data = Object.fromEntries(new FormData(event.target).entries());
+
+    try {
+      const res = await fetch(buildUrl(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+      });
+
+      const text = await res.text();
+
+      if (!res.ok) {
+        setStatus(formStatus, `❌ Σφάλμα: ${res.status}`, "err");
+        console.error(text);
+        return;
       }
-    });
+      if (text.trim() === "Unauthorized") {
+        setStatus(formStatus, "❌ Μη έγκυρος κωδικός πρόσβασης.", "err");
+        return;
+      }
 
-    prevMonth.addEventListener("click", () => {
-      currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
-      renderCalendar();
-    });
+      setStatus(formStatus, "✅ Η καταχώρηση αποθηκεύτηκε.", "ok");
+      event.target.reset();
+      await loadBookings();
+    } catch (err) {
+      setStatus(formStatus, `❌ ${err?.message || "Αποτυχία αποθήκευσης."}`, "err");
+      console.error(err);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
 
-    nextMonth.addEventListener("click", () => {
-      currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
-      renderCalendar();
-    });
+  prevMonth.addEventListener("click", () => {
+    currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
+    renderCalendar();
+  });
 
-    refreshBtn.addEventListener("click", loadBookings);
+  nextMonth.addEventListener("click", () => {
+    currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1);
+    renderCalendar();
+  });
 
-    loadBookings();
-  </script>
+  refreshBtn.addEventListener("click", loadBookings);
+
+  // initial load
+  loadBookings();
+</script>
 </body>
 </html>
