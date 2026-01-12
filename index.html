@@ -283,7 +283,9 @@
   </main>
 
   <script>
-    const ENDPOINT = `${window.location.origin}/bookings`;
+    // ✅ ΒΑΛΕ ΕΔΩ ΤΟ GOOGLE APPS SCRIPT WEB APP URL (Deploy → Web app)
+    // π.χ. https://script.google.com/macros/s/AKfycbxxxxxxxxxxxx/exec
+    const SCRIPT_URL = "PASTE_YOUR_WEB_APP_URL_HERE";
 
     const accessTokenInput = document.getElementById("accessToken");
     const authStatus = document.getElementById("authStatus");
@@ -316,9 +318,9 @@
       if (kind === "err") el.classList.add("err");
     }
 
-    function authHeaders() {
+    function tokenParam() {
       const token = accessTokenInput.value.trim();
-      return token ? { Authorization: `Bearer ${token}` } : {};
+      return `token=${encodeURIComponent(token)}`;
     }
 
     async function loadBookings() {
@@ -326,22 +328,38 @@
       bookingList.innerHTML = "";
 
       try {
-        const res = await fetch(ENDPOINT, { headers: authHeaders() });
+        if (!SCRIPT_URL || SCRIPT_URL.includes("PASTE_YOUR_WEB_APP_URL_HERE")) {
+          bookings = [];
+          renderCalendar();
+          setStatus(authStatus, "⚠️ Δεν έχει οριστεί το SCRIPT_URL (Apps Script Web App URL).", "err");
+          return;
+        }
+
+        const res = await fetch(`${SCRIPT_URL}?${tokenParam()}`, { method: "GET" });
 
         if (!res.ok) {
-          if (res.status === 401) {
+          if (res.status === 401 || res.status === 403) {
             bookings = [];
             renderCalendar();
             setStatus(authStatus, "❌ Μη έγκυρος κωδικός πρόσβασης.", "err");
             return;
           }
-          throw new Error(await res.text());
+          const t = await res.text();
+          throw new Error(t || `HTTP ${res.status}`);
         }
 
-        bookings = await res.json();
-        setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
+        const text = await res.text();
 
-        // keep selectedDate in same month if possible
+        // Apps Script με unauthorized_() μπορεί να γυρίσει σκέτο "Unauthorized"
+        if (text.trim().toLowerCase() === "unauthorized") {
+          bookings = [];
+          renderCalendar();
+          setStatus(authStatus, "❌ Μη έγκυρος κωδικός πρόσβασης.", "err");
+          return;
+        }
+
+        bookings = JSON.parse(text);
+        setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
         renderCalendar();
       } catch (err) {
         bookings = [];
@@ -360,10 +378,8 @@
       const daysInMonth = new Date(year, month + 1, 0).getDate();
 
       monthLabel.textContent = firstDay.toLocaleDateString("el-GR", { month: "long", year: "numeric" });
-
       calendarGrid.innerHTML = "";
 
-      // headers
       const dayLabels = ["Δ", "Τ", "Τ", "Π", "Π", "Σ", "Κ"];
       dayLabels.forEach((label) => {
         const cell = document.createElement("div");
@@ -372,21 +388,19 @@
         calendarGrid.appendChild(cell);
       });
 
-      // blanks
       for (let i = 0; i < startDay; i++) {
         const empty = document.createElement("div");
         empty.className = "calendar-cell empty";
         calendarGrid.appendChild(empty);
       }
 
-      // days
       for (let day = 1; day <= daysInMonth; day++) {
         const cell = document.createElement("div");
 
         const dateKey =
           `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 
-        const dayBookings = bookings.filter((b) => b.date === dateKey);
+        const dayBookings = bookings.filter((b) => String(b.date) === dateKey);
 
         cell.className = "calendar-cell";
         if (dayBookings.length) cell.classList.add("has-booking");
@@ -400,7 +414,7 @@
           selectedDate = dateKey;
           renderCalendar();
           renderBookingsForDate(dateKey);
-          // prefill date in form
+
           const dateInput = bookingForm.querySelector('input[name="date"]');
           if (dateInput) dateInput.value = dateKey;
         });
@@ -426,7 +440,7 @@
 
     function renderBookingsForDate(dateKey) {
       const dayBookings = bookings
-        .filter((b) => b.date === dateKey)
+        .filter((b) => String(b.date) === dateKey)
         .sort((a, b) => String(a.time).localeCompare(String(b.time)));
 
       if (!dayBookings.length) {
@@ -459,24 +473,27 @@
       const data = Object.fromEntries(new FormData(event.target).entries());
 
       try {
-        const res = await fetch(ENDPOINT, {
+        if (!SCRIPT_URL || SCRIPT_URL.includes("PASTE_YOUR_WEB_APP_URL_HERE")) {
+          throw new Error("Δεν έχει οριστεί το SCRIPT_URL (Apps Script Web App URL).");
+        }
+
+        const res = await fetch(`${SCRIPT_URL}?${tokenParam()}`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders()
-          },
-          body: JSON.stringify(data)
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
         });
 
+        const text = await res.text();
+        if (text.trim().toLowerCase() === "unauthorized") {
+          throw new Error("Μη έγκυρος κωδικός πρόσβασης.");
+        }
+
         if (!res.ok) {
-          if (res.status === 401) throw new Error("Μη έγκυρος κωδικός πρόσβασης.");
-          throw new Error(await res.text());
+          throw new Error(text || `HTTP ${res.status}`);
         }
 
         setStatus(formStatus, "✅ Η καταχώρηση αποθηκεύτηκε.", "ok");
         event.target.reset();
-
-        // keep selected date visible if we had one
         await loadBookings();
       } catch (err) {
         setStatus(formStatus, `❌ ${err?.message || "Αποτυχία αποθήκευσης."}`, "err");
@@ -498,7 +515,6 @@
 
     refreshBtn.addEventListener("click", loadBookings);
 
-    // initial load
     loadBookings();
   </script>
 </body>
