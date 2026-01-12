@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ΚΕΔΕΕΑ – Καταγραφή Ραντεβού</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto;max-width:720px;margin:40px auto;padding:0 16px}
+    label{display:block;margin-top:12px;font-weight:600}
+    input,textarea{width:100%;padding:10px;margin-top:6px;border:1px solid #ccc;border-radius:10px}
+    button{margin-top:16px;padding:10px 14px;border:0;border-radius:10px;cursor:pointer}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .hint{color:#666;font-size:14px;margin-top:8px}
+    .status{margin-top:12px;font-weight:600}
+  </style>
+</head>
+<body>
+  <h1>ΚΕΔΕΕΑ – Αίτημα/Καταγραφή Ραντεβού</h1>
+  <p class="hint">Συμπλήρωσε τα στοιχεία και θα σταλεί email στη γραμματεία.</p>
+
+  <form id="apptForm">
+    <div class="row">
+      <div>
+        <label>Ονοματεπώνυμο ωφελούμενου</label>
+        <input name="name" required />
+      </div>
+      <div>
+        <label>Email ωφελούμενου</label>
+        <input name="email" type="email" required />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label>Ημερομηνία</label>
+        <input name="date" type="date" required />
+      </div>
+      <div>
+        <label>Ώρα</label>
+        <input name="time" type="time" required />
+      </div>
+    </div>
+
+    <label>Σημειώσεις / Αίτημα</label>
+    <textarea name="notes" rows="5" placeholder="Π.χ. λόγος επίσκεψης, προτιμήσεις..." required></textarea>
+
+    <button type="submit">Αποστολή</button>
+    <div class="status" id="status"></div>
+  </form>
+
+  <script>
+    const ENDPOINT = "https://YOUR-WORKER.your-subdomain.workers.dev/api/send"; // βάλε εδώ το Worker URL
+
+    document.getElementById("apptForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const status = document.getElementById("status");
+      status.textContent = "Αποστολή…";
+
+      const data = Object.fromEntries(new FormData(e.target).entries());
+
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+
+        if (!res.ok) throw new Error(await res.text());
+        status.textContent = "✅ Στάλθηκε! Θα επικοινωνήσουμε σύντομα.";
+        e.target.reset();
+      } catch (err) {
+        status.textContent = "❌ Αποτυχία αποστολής. Δοκίμασε ξανά ή ενημέρωσε τη γραμματεία.";
+        console.error(err);
+      }
+    });
+  </script>
+</body>
+</html>
