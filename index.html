@@ -304,46 +304,73 @@
       return accessTokenInput.value.trim();
     }
 
-    // -------- FIX: normalize date/time from Apps Script ----------
-    function toDateKey(v) {
-      if (!v) return "";
-      const s = String(v);
-      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-      if (s.includes("T")) return s.slice(0, 10);
-      const d = new Date(s);
-      if (!isNaN(d.getTime())) {
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, "0");
-        const dd = String(d.getDate()).padStart(2, "0");
-        return `${yyyy}-${mm}-${dd}`;
-      }
-      return "";
-    }
+// -------- FIX: normalize date/time (Europe/Athens, 24h) ----------
+const TZ = "Europe/Athens";
 
-    function toTimeHHMM(v) {
-      if (!v) return "";
-      const s = String(v);
-      if (/^\d{2}:\d{2}$/.test(s)) return s;
-      if (s.includes("T")) {
-        const d = new Date(s);
-        if (!isNaN(d.getTime())) {
-          const hh = String(d.getUTCHours()).padStart(2, "0");
-          const mm = String(d.getUTCMinutes()).padStart(2, "0");
-          return `${hh}:${mm}`;
-        }
-      }
-      return s.slice(0, 5);
-    }
+function partsInAthens(dateObj) {
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  const parts = dtf.formatToParts(dateObj);
+  const get = (type) => parts.find(p => p.type === type)?.value || "";
+  return {
+    y: get("year"),
+    m: get("month"),
+    d: get("day"),
+    hh: get("hour"),
+    mm: get("minute"),
+  };
+}
 
-    function normalizeBookings(arr) {
-      return (arr || []).map(b => ({
-        ...b,
-        date: toDateKey(b.date),
-        time: toTimeHHMM(b.time),
-        beneficiaryPhone: b.beneficiaryPhone != null ? String(b.beneficiaryPhone) : ""
-      }));
-    }
-    // ------------------------------------------------------------
+function toDateKey(v) {
+  if (!v) return "";
+  const s = String(v);
+
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // ISO or any date-like string -> convert to Athens date
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const p = partsInAthens(d);
+    return `${p.y}-${p.m}-${p.d}`;
+  }
+  return "";
+}
+
+function toTimeHHMM(v) {
+  if (!v) return "";
+  const s = String(v);
+
+  // Already HH:MM
+  if (/^\d{2}:\d{2}$/.test(s)) return s;
+
+  // ISO -> convert to Athens 24h time
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const p = partsInAthens(d);
+    return `${p.hh}:${p.mm}`;
+  }
+
+  // fallback
+  return s.slice(0, 5);
+}
+
+function normalizeBookings(arr) {
+  return (arr || []).map(b => ({
+    ...b,
+    date: toDateKey(b.date),
+    time: toTimeHHMM(b.time),
+    beneficiaryPhone: b.beneficiaryPhone != null ? String(b.beneficiaryPhone) : ""
+  }));
+}
+// --------------------------------------------------------------
 
     function jsonp(url) {
       return new Promise((resolve, reject) => {
