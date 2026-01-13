@@ -44,7 +44,6 @@
       grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
       align-items:start;
     }
-    /* κρίσιμο: να μη “σπάει” grid item και να μην ξεχειλώνει */
     main > * { min-width: 0; }
 
     .card{
@@ -53,7 +52,7 @@
       padding:20px;
       box-shadow:0 16px 30px rgba(15,23,42,.08);
       border:1px solid var(--border);
-      overflow:hidden; /* FIX: να μη βγαίνει δεξιά */
+      overflow:hidden;
     }
     .card h2{margin:0 0 8px;font-size:20px}
 
@@ -88,9 +87,7 @@
       border:1px solid var(--border);
       padding:10px 12px;
     }
-    .btn-danger{
-      background:var(--danger);
-    }
+    .btn-danger{ background:var(--danger); }
     .btn-danger:hover{ background:#b91c1c; }
 
     .grid-2{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
@@ -131,7 +128,7 @@
 
     .calendar-grid{
       display:grid;
-      grid-template-columns:repeat(7, minmax(0, 1fr)); /* FIX: να χωράει πάντα */
+      grid-template-columns:repeat(7, minmax(0, 1fr));
       gap:6px;
       text-align:center;
       font-size:13px;
@@ -219,6 +216,18 @@
       font-size:13px;
     }
 
+    .chip{
+      display:inline-block;
+      padding:3px 8px;
+      border-radius:999px;
+      background:rgba(249,115,22,.12);
+      border:1px solid rgba(249,115,22,.25);
+      color:#9a3412;
+      font-size:12px;
+      font-weight:800;
+      white-space:nowrap;
+    }
+
     /* Modal */
     .modal-backdrop{
       position:fixed;
@@ -231,7 +240,7 @@
       z-index:9999;
     }
     .modal{
-      width:min(520px, 100%);
+      width:min(560px, 100%);
       background:#fff;
       border-radius:18px;
       border:1px solid var(--border);
@@ -246,6 +255,24 @@
       margin-top:14px;
       flex-wrap:wrap;
     }
+    .radio-row{
+      display:flex;
+      gap:14px;
+      flex-wrap:wrap;
+      margin-top:10px;
+      padding:10px 12px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#f8fafc;
+    }
+    .radio-row label{
+      margin:0;
+      font-weight:800;
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+    .radio-row input{ width:auto; margin:0; }
   </style>
 </head>
 
@@ -301,7 +328,7 @@
 
         <div class="grid-2">
           <div>
-            <label>Ημερομηνία</label>
+            <label>Ημερομηνία (Start)</label>
             <input name="date" type="date" required />
           </div>
           <div>
@@ -318,6 +345,16 @@
           <div>
             <label>Κλινικός εκπαιδευτής</label>
             <input name="clinician" required />
+          </div>
+        </div>
+
+        <!-- NEW: Weekly repeat -->
+        <div class="radio-row" style="margin-top:14px">
+          <label><input type="checkbox" id="repeatWeekly" /> Επανάληψη κάθε εβδομάδα</label>
+          <div style="flex:1; min-width:200px">
+            <label style="margin:0">End date (μόνο αν είναι εβδομαδιαίο)</label>
+            <input id="repeatEndDate" type="date" disabled />
+            <div class="hint" style="margin-top:6px">Ορίζει πότε σταματάει η επανάληψη.</div>
           </div>
         </div>
 
@@ -352,6 +389,12 @@
       <h3>Επεξεργασία ραντεβού</h3>
       <div class="hint" id="modalInfo"></div>
 
+      <!-- NEW: scope only for recurring -->
+      <div class="radio-row" id="editScopeRow" style="display:none">
+        <label><input type="radio" name="editScope" value="occurrence" checked> Μόνο αυτή η ημέρα</label>
+        <label><input type="radio" name="editScope" value="series"> Όλη η σειρά</label>
+      </div>
+
       <div class="grid-2" style="margin-top:10px">
         <div>
           <label>Ημερομηνία</label>
@@ -365,6 +408,7 @@
 
       <div class="actions">
         <button type="button" class="btn-outline" id="modalCancel">Άκυρο</button>
+        <button type="button" class="btn-danger" id="modalCancelOne" style="display:none">Ακύρωση μόνο αυτής της ημέρας</button>
         <button type="button" id="modalSave">Αποθήκευση αλλαγής</button>
       </div>
 
@@ -390,26 +434,40 @@
     const prevMonth = document.getElementById("prevMonth");
     const nextMonth = document.getElementById("nextMonth");
 
+    // NEW: repeat controls
+    const repeatWeeklyEl = document.getElementById("repeatWeekly");
+    const repeatEndDateEl = document.getElementById("repeatEndDate");
+
     // modal
     const modalBackdrop = document.getElementById("modalBackdrop");
     const modalCancel = document.getElementById("modalCancel");
     const modalSave = document.getElementById("modalSave");
+    const modalCancelOne = document.getElementById("modalCancelOne");
     const modalStatus = document.getElementById("modalStatus");
     const modalInfo = document.getElementById("modalInfo");
     const editDate = document.getElementById("editDate");
     const editTime = document.getElementById("editTime");
+    const editScopeRow = document.getElementById("editScopeRow");
 
-    let bookings = [];
+    // DATA:
+    let baseRows = [];      // rows from sheet (one row per series)
+    let bookings = [];      // expanded occurrences (used for calendar + list)
     let currentMonth = new Date();
     let selectedDate = null;
 
-    // current edit state
-    let editingId = null;
+    // edit state:
+    let editing = null; // { id, occurrenceDate, isRecurring }
 
     // persist token in sessionStorage
     accessTokenInput.value = sessionStorage.getItem("accessToken") || "";
     accessTokenInput.addEventListener("input", () => {
       sessionStorage.setItem("accessToken", accessTokenInput.value.trim());
+    });
+
+    // NEW: weekly UI
+    repeatWeeklyEl.addEventListener("change", () => {
+      repeatEndDateEl.disabled = !repeatWeeklyEl.checked;
+      if (!repeatWeeklyEl.checked) repeatEndDateEl.value = "";
     });
 
     function setStatus(el, msg, kind) {
@@ -463,14 +521,88 @@
       return s.slice(0,5);
     }
 
-    function normalizeBookings(arr) {
+    function normalizeRows(arr) {
       return (arr || []).map(b => ({
         ...b,
         id: String(b.id ?? "").trim(),
         date: toDateKey(b.date),
         time: toTimeHHMM(b.time),
-        beneficiaryPhone: b.beneficiaryPhone != null ? String(b.beneficiaryPhone) : ""
+        beneficiaryPhone: b.beneficiaryPhone != null ? String(b.beneficiaryPhone) : "",
+        repeatWeekly: String(b.repeatWeekly ?? "").toUpperCase() === "TRUE" || String(b.repeatWeekly ?? "").toLowerCase() === "true",
+        repeatEndDate: toDateKey(b.repeatEndDate),
+        exceptions: String(b.exceptions ?? "").trim(), // CSV dates
+        overrides: String(b.overrides ?? "").trim()    // JSON
       }));
+    }
+
+    function parseExceptions(csv) {
+      const s = String(csv || "").trim();
+      if (!s) return new Set();
+      return new Set(s.split(",").map(x => x.trim()).filter(Boolean));
+    }
+
+    function parseOverrides(json) {
+      const s = String(json || "").trim();
+      if (!s) return {};
+      try { return JSON.parse(s); } catch { return {}; }
+    }
+
+    function addDays(dateKey, days) {
+      const [y,m,d] = dateKey.split("-").map(Number);
+      const dt = new Date(Date.UTC(y, m-1, d, 12, 0, 0)); // midday UTC avoid DST weirdness
+      dt.setUTCDate(dt.getUTCDate() + days);
+      const yy = dt.getUTCFullYear();
+      const mm = String(dt.getUTCMonth()+1).padStart(2,"0");
+      const dd = String(dt.getUTCDate()).padStart(2,"0");
+      return `${yy}-${mm}-${dd}`;
+    }
+
+    function expandOccurrences(rows) {
+      const out = [];
+      for (const r of rows) {
+        if (!r.id || !r.date || !r.time) continue;
+
+        const base = {
+          id: r.id,
+          beneficiaryName: r.beneficiaryName,
+          beneficiaryEmail: r.beneficiaryEmail,
+          beneficiaryPhone: r.beneficiaryPhone,
+          serviceType: r.serviceType,
+          room: r.room,
+          clinician: r.clinician,
+          notes: r.notes,
+          isRecurring: !!r.repeatWeekly
+        };
+
+        if (!r.repeatWeekly || !r.repeatEndDate) {
+          out.push({ ...base, date: r.date, time: r.time, occurrenceDate: r.date, isOverride:false });
+          continue;
+        }
+
+        const exceptions = parseExceptions(r.exceptions);
+        const overrides = parseOverrides(r.overrides);
+
+        let d = r.date;
+        const end = r.repeatEndDate;
+        while (d && d <= end) {
+          if (!exceptions.has(d)) {
+            const ov = overrides[d] || {};
+            out.push({
+              ...base,
+              date: d,
+              occurrenceDate: d,
+              time: ov.time ? toTimeHHMM(ov.time) : r.time,
+              room: ov.room ?? r.room,
+              clinician: ov.clinician ?? r.clinician,
+              serviceType: ov.serviceType ?? r.serviceType,
+              notes: ov.notes ?? r.notes,
+              isOverride: !!overrides[d]
+            });
+          }
+          d = addDays(d, 7);
+        }
+      }
+      return out;
     }
     // ----------------------------------------------------------
 
@@ -516,15 +648,20 @@
       try {
         const res = await jsonp(u.toString());
         if (!res?.ok) {
+          baseRows = [];
           bookings = [];
           renderCalendar();
           setStatus(authStatus, "❌ Μη έγκυρος κωδικός ή σφάλμα.", "err");
           return;
         }
-        bookings = normalizeBookings(res.data);
+
+        baseRows = normalizeRows(res.data);
+        bookings = expandOccurrences(baseRows);
+
         setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
         renderCalendar();
       } catch (e) {
+        baseRows = [];
         bookings = [];
         renderCalendar();
         setStatus(authStatus, "⚠️ Δεν ήταν δυνατή η φόρτωση (δες Console).", "err");
@@ -599,12 +736,19 @@
 
       bookingList.innerHTML = dayBookings.map((b) => {
         const idText = b.id ? `#${escapeHtml(b.id)}` : "(χωρίς id)";
+        const rep = b.isRecurring ? `<span class="chip">weekly</span>` : "";
+        const ov = b.isOverride ? `<span class="chip">edited day</span>` : "";
+
         return `
-          <div class="booking-item" data-id="${escapeHtml(b.id)}">
+          <div class="booking-item">
             <h3>
-              <span>${escapeHtml(b.time)} · ${escapeHtml(b.beneficiaryName)} <span class="hint" style="font-weight:700"> ${idText}</span></span>
+              <span>${escapeHtml(b.time)} · ${escapeHtml(b.beneficiaryName)} ${rep} ${ov}
+                <span class="hint" style="font-weight:700"> ${idText}</span>
+              </span>
             </h3>
+
             <div class="booking-meta">
+              <div>Ημερομηνία: ${escapeHtml(b.date)}</div>
               <div>Υπηρεσία: ${escapeHtml(b.serviceType)}</div>
               <div>Αίθουσα: ${escapeHtml(b.room)}</div>
               <div>Κλινικός εκπαιδευτής: ${escapeHtml(b.clinician)}</div>
@@ -614,8 +758,22 @@
             </div>
 
             <div class="row-actions">
-              <button type="button" class="small btn-outline" onclick="openEdit('${escapeHtml(b.id)}')">Αλλαγή ώρας/ημ.</button>
-              <button type="button" class="small btn-danger" onclick="deleteBooking('${escapeHtml(b.id)}')">Διαγραφή</button>
+              <button type="button" class="small btn-outline" onclick="openEdit('${escapeHtml(b.id)}','${escapeHtml(b.occurrenceDate)}',${b.isRecurring ? "true" : "false"})">
+                Αλλαγή ώρας/ημ.
+              </button>
+
+              ${b.isRecurring ? `
+                <button type="button" class="small btn-danger" onclick="cancelOne('${escapeHtml(b.id)}','${escapeHtml(b.occurrenceDate)}')">
+                  Ακύρωση μόνο αυτής της ημέρας
+                </button>
+                <button type="button" class="small btn-danger" onclick="deleteSeries('${escapeHtml(b.id)}')">
+                  Διαγραφή σειράς
+                </button>
+              ` : `
+                <button type="button" class="small btn-danger" onclick="deleteSeries('${escapeHtml(b.id)}')">
+                  Διαγραφή
+                </button>
+              `}
             </div>
           </div>
         `;
@@ -631,7 +789,7 @@
       return await jsonp(u.toString());
     }
 
-    async function updateBooking(id, patch) {
+    async function updateSeries(id, patch) {
       const u = new URL(SCRIPT_URL);
       u.searchParams.set("token", token());
       u.searchParams.set("action", "update");
@@ -640,7 +798,26 @@
       return await jsonp(u.toString());
     }
 
-    async function removeBooking(id) {
+    async function updateOccurrence(id, occurrenceDate, patch) {
+      const u = new URL(SCRIPT_URL);
+      u.searchParams.set("token", token());
+      u.searchParams.set("action", "update_occurrence");
+      u.searchParams.set("id", id);
+      u.searchParams.set("occurrenceDate", occurrenceDate);
+      Object.entries(patch).forEach(([k,v]) => u.searchParams.set(k, v ?? ""));
+      return await jsonp(u.toString());
+    }
+
+    async function cancelOccurrence(id, occurrenceDate) {
+      const u = new URL(SCRIPT_URL);
+      u.searchParams.set("token", token());
+      u.searchParams.set("action", "cancel_occurrence");
+      u.searchParams.set("id", id);
+      u.searchParams.set("occurrenceDate", occurrenceDate);
+      return await jsonp(u.toString());
+    }
+
+    async function removeSeries(id) {
       const u = new URL(SCRIPT_URL);
       u.searchParams.set("token", token());
       u.searchParams.set("action", "delete");
@@ -649,37 +826,62 @@
     }
 
     // expose globally for inline onclick
-    window.openEdit = (id) => {
+    window.openEdit = (id, occurrenceDate, isRecurring) => {
       const cleanId = String(id ?? "").trim();
-      const item = bookings.find(x => String(x.id) === cleanId);
+      const occ = String(occurrenceDate ?? "").trim();
+
       if (!cleanId) {
-        alert("Αυτό το ραντεβού δεν έχει id στο sheet, άρα δεν μπορεί να γίνει αλλαγή/διαγραφή. Βάλε id στη γραμμή του sheet.");
-        return;
-      }
-      if (!item) {
-        alert("Δεν βρέθηκε το ραντεβού. Κάνε Ανανέωση.");
+        alert("Αυτό το ραντεβού δεν έχει id στο sheet, άρα δεν μπορεί να γίνει αλλαγή/διαγραφή.");
         return;
       }
 
-      editingId = cleanId;
-      editDate.value = item.date || "";
-      editTime.value = item.time || "";
-      modalInfo.textContent = `Ραντεβού: ${item.beneficiaryName} (${cleanId})`;
+      editing = { id: cleanId, occurrenceDate: occ, isRecurring: !!isRecurring };
+
+      editDate.value = occ || "";
+      const item = bookings.find(x => x.id === cleanId && x.occurrenceDate === occ);
+      editTime.value = item?.time || "";
+
+      modalInfo.textContent = editing.isRecurring
+        ? `Επαναλαμβανόμενο ραντεβού (${cleanId}) – ημέρα: ${occ}`
+        : `Ραντεβού (${cleanId})`;
+
       setStatus(modalStatus, "", null);
+
+      editScopeRow.style.display = editing.isRecurring ? "flex" : "none";
+      modalCancelOne.style.display = editing.isRecurring ? "inline-block" : "none";
+
+      if (editing.isRecurring) {
+        document.querySelector('input[name="editScope"][value="occurrence"]').checked = true;
+      }
 
       modalBackdrop.style.display = "flex";
     };
 
-    window.deleteBooking = async (id) => {
+    window.cancelOne = async (id, occurrenceDate) => {
       const cleanId = String(id ?? "").trim();
-      if (!cleanId) {
-        alert("Αυτό το ραντεβού δεν έχει id στο sheet, άρα δεν μπορεί να γίνει διαγραφή. Βάλε id στη γραμμή του sheet.");
-        return;
-      }
-      if (!confirm(`Διαγραφή ραντεβού #${cleanId};`)) return;
+      const occ = String(occurrenceDate ?? "").trim();
+      if (!confirm(`Ακύρωση μόνο για ${occ} (σειρά #${cleanId});`)) return;
 
       try {
-        const res = await removeBooking(cleanId);
+        const res = await cancelOccurrence(cleanId, occ);
+        if (!res?.ok) throw new Error(res?.error || "Cancel failed");
+        await loadBookings();
+      } catch (e) {
+        alert("Σφάλμα ακύρωσης: " + (e?.message || e));
+        console.error(e);
+      }
+    };
+
+    window.deleteSeries = async (id) => {
+      const cleanId = String(id ?? "").trim();
+      if (!cleanId) {
+        alert("Δεν υπάρχει id.");
+        return;
+      }
+      if (!confirm(`Διαγραφή ${cleanId}; (Αν είναι σειρά, θα διαγραφεί όλη)`)) return;
+
+      try {
+        const res = await removeSeries(cleanId);
         if (!res?.ok) throw new Error(res?.error || "Delete failed");
         await loadBookings();
       } catch (e) {
@@ -690,18 +892,43 @@
 
     modalCancel.addEventListener("click", () => {
       modalBackdrop.style.display = "none";
-      editingId = null;
+      editing = null;
     });
 
     modalBackdrop.addEventListener("click", (e) => {
       if (e.target === modalBackdrop) {
         modalBackdrop.style.display = "none";
-        editingId = null;
+        editing = null;
+      }
+    });
+
+    modalCancelOne.addEventListener("click", async () => {
+      if (!editing?.id || !editing?.occurrenceDate) return;
+      if (!confirm(`Ακύρωση μόνο για ${editing.occurrenceDate};`)) return;
+
+      setStatus(modalStatus, "Ακύρωση…", null);
+      modalCancelOne.disabled = true;
+
+      try {
+        const res = await cancelOccurrence(editing.id, editing.occurrenceDate);
+        if (!res?.ok) throw new Error(res?.error || "Cancel failed");
+        setStatus(modalStatus, "✅ Ακυρώθηκε μόνο αυτή η ημέρα.", "ok");
+        await loadBookings();
+
+        setTimeout(() => {
+          modalBackdrop.style.display = "none";
+          editing = null;
+        }, 450);
+      } catch (e) {
+        setStatus(modalStatus, "❌ " + (e?.message || e), "err");
+        console.error(e);
+      } finally {
+        modalCancelOne.disabled = false;
       }
     });
 
     modalSave.addEventListener("click", async () => {
-      if (!editingId) return;
+      if (!editing?.id) return;
 
       const newDate = (editDate.value || "").trim();
       const newTime = (editTime.value || "").trim();
@@ -715,18 +942,35 @@
       modalSave.disabled = true;
 
       try {
-        const res = await updateBooking(editingId, { date: newDate, time: newTime });
-        if (!res?.ok) throw new Error(res?.error || "Update failed");
+        if (!editing.isRecurring) {
+          const res = await updateSeries(editing.id, { date: newDate, time: newTime });
+          if (!res?.ok) throw new Error(res?.error || "Update failed");
+          setStatus(modalStatus, "✅ Έγινε η αλλαγή.", "ok");
+          await loadBookings();
+        } else {
+          const scope = document.querySelector('input[name="editScope"]:checked')?.value || "occurrence";
 
-        setStatus(modalStatus, "✅ Έγινε η αλλαγή.", "ok");
-        await loadBookings();
+          if (scope === "series") {
+            const res = await updateSeries(editing.id, { date: newDate, time: newTime });
+            if (!res?.ok) throw new Error(res?.error || "Update failed");
+            setStatus(modalStatus, "✅ Έγινε η αλλαγή σε όλη τη σειρά.", "ok");
+            await loadBookings();
+          } else {
+            if (newDate !== editing.occurrenceDate) {
+              throw new Error("Για αλλαγή ημερομηνίας σε επαναλαμβανόμενο: ακύρωσε τη μέρα και βάλε νέο ραντεβού. (Μπορώ να στο προσθέσω αν το θες.)");
+            }
+            const res = await updateOccurrence(editing.id, editing.occurrenceDate, { time: newTime });
+            if (!res?.ok) throw new Error(res?.error || "Update occurrence failed");
+            setStatus(modalStatus, "✅ Έγινε η αλλαγή μόνο για αυτή την ημέρα.", "ok");
+            await loadBookings();
+          }
+        }
 
-        // keep selection
         if (selectedDate) renderBookingsForDate(selectedDate);
 
         setTimeout(() => {
           modalBackdrop.style.display = "none";
-          editingId = null;
+          editing = null;
         }, 450);
       } catch (e) {
         setStatus(modalStatus, "❌ " + (e?.message || e), "err");
@@ -735,7 +979,6 @@
         modalSave.disabled = false;
       }
     });
-    // ----------------------------------
 
     bookingForm.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -744,11 +987,30 @@
 
       const data = Object.fromEntries(new FormData(event.target).entries());
 
+      // NEW: weekly params
+      if (repeatWeeklyEl.checked) {
+        const end = (repeatEndDateEl.value || "").trim();
+        if (!end) {
+          setStatus(formStatus, "❌ Βάλε End date για εβδομαδιαία επανάληψη.", "err");
+          saveBtn.disabled = false;
+          return;
+        }
+        data.repeatWeekly = "true";
+        data.repeatEndDate = end;
+      }
+
       try {
         const res = await addBooking(data);
         if (!res?.ok) throw new Error(res?.error || "Σφάλμα αποθήκευσης");
+
         setStatus(formStatus, "✅ Η καταχώρηση αποθηκεύτηκε.", "ok");
         event.target.reset();
+
+        // reset weekly UI
+        repeatWeeklyEl.checked = false;
+        repeatEndDateEl.value = "";
+        repeatEndDateEl.disabled = true;
+
         await loadBookings();
       } catch (e) {
         setStatus(formStatus, "❌ " + (e?.message || e), "err");
