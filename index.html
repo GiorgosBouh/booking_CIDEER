@@ -302,7 +302,7 @@
 
       <button type="button" id="refreshBtn">Φόρτωση / Ανανέωση</button>
       <div class="status" id="authStatus" role="status"></div>
-      <details class="export-panel" id="exportPanel">
+      <details class="export-panel" id="exportPanel" hidden>
         <summary>Εξαγωγή σε Excel</summary>
         <label for="exportScope">Περίοδος</label>
         <select id="exportScope">
@@ -485,6 +485,7 @@
     let editing = null; // { id, occurrenceDate, isRecurring }
 
     let exportLoadedToken = null;
+    let authRevision = 0;
     let exportBusy = false;
     const exportBtn = document.getElementById("exportBtn");
     const exportStatus = document.getElementById("exportStatus");
@@ -508,6 +509,7 @@
 
     function updateExportPreview() {
       const ready = exportLoadedToken !== null && exportLoadedToken === token();
+      document.getElementById("exportPanel").hidden = !ready;
       const rows = ready ? selectedExportBookings() : [];
       const needsMonths = exportScope.value === "selected" && !exportFilters().months.length;
       document.getElementById("exportMonthSection").hidden = exportScope.value !== "selected";
@@ -579,34 +581,65 @@
       });
     });
     exportBtn.addEventListener("click", async () => {
-      if (exportBtn.disabled) return;
-      const authorizedToken = exportLoadedToken;
-      const rows = selectedExportBookings();
+      const authorizedToken = token();
+      if (exportBusy || !authorizedToken || exportLoadedToken !== authorizedToken) return;
+      const revision = authRevision;
+      const filters = exportFilters();
+      if (!filters.allMonths && !filters.months.length) return;
       exportBusy = true;
       updateExportPreview();
-      setStatus(exportStatus, "Δημιουργία Excel…", null);
+      setStatus(exportStatus, "Έλεγχος πρόσβασης και δημιουργία Excel…", null);
       try {
+        // Revalidate on the server and export fresh data, never cached private rows.
+        const u = new URL(SCRIPT_URL);
+        u.searchParams.set("token", authorizedToken);
+        u.searchParams.set("action", "list");
+        u.searchParams.set("_", Date.now());
+        const response = await jsonp(u.toString());
+        if (!response?.ok) {
+          revokeAccess();
+          throw new Error(response?.error === "Unauthorized"
+            ? "Μη έγκυρος κωδικός. Συνδεθείτε ξανά για εξαγωγή."
+            : "Δεν επιβεβαιώθηκε η πρόσβαση. Συνδεθείτε ξανά.");
+        }
+        if (revision !== authRevision || authorizedToken !== token() || exportLoadedToken !== authorizedToken) {
+          throw new Error("Η σύνδεση άλλαξε. Φορτώστε ξανά το ημερολόγιο.");
+        }
+        const rows = BookingExport.filterBookings(expandOccurrences(normalizeRows(response.data)), filters);
+        if (!rows.length) throw new Error("Δεν υπάρχουν ραντεβού για τα επιλεγμένα φίλτρα.");
         const XLSX = await loadExcelLibrary();
-        if (authorizedToken !== token() || exportLoadedToken !== authorizedToken) {
-          throw new Error("Ο κωδικός άλλαξε. Φορτώστε ξανά το ημερολόγιο.");
+        if (revision !== authRevision || authorizedToken !== token() || exportLoadedToken !== authorizedToken) {
+          throw new Error("Η σύνδεση άλλαξε. Φορτώστε ξανά το ημερολόγιο.");
         }
         const workbook = BookingExport.buildWorkbook(XLSX, rows);
         XLSX.writeFile(workbook, `KEDEEA_${toDateKey(new Date())}.xlsx`, { compression: true });
         setStatus(exportStatus, `✅ Το Excel δημιουργήθηκε με ${rows.length} ραντεβού.`, "ok");
       } catch (e) {
         setStatus(exportStatus, "❌ " + e.message, "err");
+        if (exportLoadedToken === null) setStatus(authStatus, e.message, "err");
       } finally {
         exportBusy = false;
         updateExportPreview();
       }
     });
 
-    // persist token in sessionStorage
-    accessTokenInput.value = sessionStorage.getItem("accessToken") || "";
+    function revokeAccess() {
+      authRevision++;
+      exportLoadedToken = null;
+      baseRows = [];
+      bookings = [];
+      document.getElementById("exportPanel").open = false;
+      updateExportFilters();
+      renderCalendar();
+    }
+
+    // Require an explicit login after every page load.
+    sessionStorage.removeItem("accessToken");
+    accessTokenInput.value = "";
     accessTokenInput.addEventListener("input", () => {
-      sessionStorage.setItem("accessToken", accessTokenInput.value.trim());
+      revokeAccess();
       setStatus(exportStatus, "", null);
-      updateExportPreview();
+      setStatus(authStatus, "Πατήστε Φόρτωση / Ανανέωση για επιβεβαίωση πρόσβασης.", null);
     });
 
     // NEW: weekly UI
@@ -792,8 +825,8 @@
     }
 
     async function loadBookings() {
-      exportLoadedToken = null;
-      updateExportPreview();
+      revokeAccess();
+      const revision = authRevision;
       const requestToken = token();
       if (!token()) {
         baseRows = [];
@@ -810,10 +843,7 @@
 
       try {
         const res = await jsonp(u.toString());
-        if (token() !== requestToken) {
-          setStatus(authStatus, "Ο κωδικός άλλαξε. Πατήστε Φόρτωση / Ανανέωση.", "err");
-          return;
-        }
+        if (revision !== authRevision || token() !== requestToken) return;
         if (!res?.ok) {
           baseRows = [];
           bookings = [];
@@ -833,9 +863,8 @@
         setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
         renderCalendar();
       } catch (e) {
-        baseRows = [];
-        bookings = [];
-        renderCalendar();
+        if (revision !== authRevision) return;
+        revokeAccess();
         setStatus(authStatus, e.message === "JSONP timeout"
           ? "⚠️ Ο διακομιστής δεν απάντησε εγκαίρως. Δοκιμάστε ξανά."
           : "⚠️ Δεν ήταν δυνατή η σύνδεση με την εφαρμογή Google Apps Script. Ελέγξτε τη σύνδεση και την πρόσβαση στην εφαρμογή.", "err");
