@@ -96,6 +96,11 @@
     .status.ok{color:var(--ok)}
     .status.err{color:var(--danger)}
 
+    .export-months { max-height:180px; overflow:auto; padding:8px 0; }
+    .export-months label { display:flex; align-items:center; gap:8px; margin:8px 0; font-weight:400; }
+    .export-months input { width:auto; margin:0; }
+    .export-panel { border-top:1px solid var(--border); margin-top:20px; padding-top:16px; }
+    .export-panel summary { cursor:pointer; color:var(--primary); font-weight:700; }
     .privacy{
       background:rgba(15,23,42,.04);
       padding:10px 12px;
@@ -296,7 +301,27 @@
       </div>
 
       <button type="button" id="refreshBtn">Φόρτωση / Ανανέωση</button>
-      <div class="status" id="authStatus"></div>
+      <div class="status" id="authStatus" role="status"></div>
+      <details class="export-panel" id="exportPanel">
+        <summary>Εξαγωγή σε Excel</summary>
+        <label for="exportScope">Περίοδος</label>
+        <select id="exportScope">
+          <option value="all">Όλοι οι μήνες</option>
+          <option value="selected">Συγκεκριμένοι μήνες</option>
+        </select>
+        <div id="exportMonthSection" hidden>
+          <div class="hint">Επιλέξτε έναν ή περισσότερους μήνες.</div>
+          <div id="exportMonths" class="export-months" role="group" aria-label="Μήνες εξαγωγής"></div>
+        </div>
+        <label for="exportClinician">Κλινικός εκπαιδευτής</label>
+        <select id="exportClinician"><option value="">Όλοι οι εκπαιδευτές</option></select>
+        <label for="exportService">Υπηρεσία</label>
+        <select id="exportService"><option value="">Όλες οι υπηρεσίες</option></select>
+        <div class="hint">Τα φίλτρα συνδυάζονται. Εξάγονται τα φορτωμένα ραντεβού, μαζί με τις εβδομαδιαίες εμφανίσεις και τις αλλαγές τους. Οι ακυρωμένες εμφανίσεις εξαιρούνται.</div>
+        <p id="exportPreview" class="hint" role="status">Φορτώστε πρώτα το ημερολόγιο με τον κωδικό σας.</p>
+        <button type="button" id="exportBtn" disabled>Λήψη Excel (.xlsx)</button>
+        <div class="status" id="exportStatus" role="status"></div>
+      </details>
     </section>
 
     <section class="card">
@@ -416,6 +441,7 @@
     </div>
   </div>
 
+  <script src="src/export.js"></script>
   <script>
     const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxYrJR-YjFahtcPheLFFw3s9ZNBc5wIpC4Aq-suTCu83F0agpGFyVvJ-L52SYZnyYK4/exec";
     const TZ = "Europe/Athens";
@@ -458,10 +484,129 @@
     // edit state:
     let editing = null; // { id, occurrenceDate, isRecurring }
 
+    let exportLoadedToken = null;
+    let exportBusy = false;
+    const exportBtn = document.getElementById("exportBtn");
+    const exportStatus = document.getElementById("exportStatus");
+    const exportScope = document.getElementById("exportScope");
+    const exportClinician = document.getElementById("exportClinician");
+    const exportService = document.getElementById("exportService");
+    const exportMonths = document.getElementById("exportMonths");
+
+    function exportFilters() {
+      return {
+        allMonths: exportScope.value === "all",
+        months: Array.from(exportMonths.querySelectorAll("input:checked"), el => el.value),
+        clinician: exportClinician.value,
+        serviceType: exportService.value
+      };
+    }
+
+    function selectedExportBookings() {
+      return BookingExport.filterBookings(bookings, exportFilters());
+    }
+
+    function updateExportPreview() {
+      const ready = exportLoadedToken !== null && exportLoadedToken === token();
+      const rows = ready ? selectedExportBookings() : [];
+      const needsMonths = exportScope.value === "selected" && !exportFilters().months.length;
+      document.getElementById("exportMonthSection").hidden = exportScope.value !== "selected";
+      document.getElementById("exportPreview").textContent = !ready
+        ? "Φορτώστε πρώτα το ημερολόγιο με τον κωδικό σας."
+        : needsMonths ? "Επιλέξτε τουλάχιστον έναν μήνα."
+        : `${rows.length} ραντεβού · ${new Set(rows.map(r => r.id)).size} περιστατικά / σειρές`;
+      exportBtn.disabled = !ready || exportBusy || !rows.length || needsMonths;
+    }
+
+    function updateExportFilters() {
+      const previousMonths = new Set(exportFilters().months);
+      exportMonths.replaceChildren();
+      const months = [...new Set(bookings.map(b => b.date.slice(0, 7)))].sort();
+      months.forEach(month => {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.value = month;
+        input.checked = previousMonths.has(month);
+        label.append(input, new Date(`${month}-15T12:00:00Z`).toLocaleDateString("el-GR", { month: "long", year: "numeric", timeZone: TZ }));
+        exportMonths.append(label);
+      });
+      for (const [select, field, allLabel] of [
+        [exportClinician, "clinician", "Όλοι οι εκπαιδευτές"],
+        [exportService, "serviceType", "Όλες οι υπηρεσίες"]
+      ]) {
+        const previous = select.value;
+        select.replaceChildren(new Option(allLabel, ""));
+        [...new Set(bookings.map(b => String(b[field] ?? "").trim()).filter(Boolean))]
+          .sort((a, b) => a.localeCompare(b, "el"))
+          .forEach(value => select.add(new Option(value, value)));
+        if (Array.from(select.options).some(option => option.value === previous)) select.value = previous;
+      }
+      updateExportPreview();
+    }
+
+    let excelLibraryPromise;
+    function loadExcelLibrary() {
+      if (window.XLSX) return Promise.resolve(window.XLSX);
+      if (excelLibraryPromise) return excelLibraryPromise;
+      excelLibraryPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        const timeout = setTimeout(() => fail(), 20000);
+        function fail() {
+          clearTimeout(timeout);
+          script.remove();
+          excelLibraryPromise = null;
+          reject(new Error("Δεν φορτώθηκε η βιβλιοθήκη Excel. Ελέγξτε τη σύνδεση και δοκιμάστε ξανά."));
+        }
+        script.src = "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js";
+        script.integrity = "sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT";
+        script.crossOrigin = "anonymous";
+        script.onerror = fail;
+        script.onload = () => {
+          clearTimeout(timeout);
+          if (!window.XLSX) { fail(); return; }
+          resolve(window.XLSX);
+        };
+        document.head.append(script);
+      });
+      return excelLibraryPromise;
+    }
+
+    [exportScope, exportClinician, exportService, exportMonths].forEach(el => {
+      el.addEventListener("change", () => {
+        setStatus(exportStatus, "", null);
+        updateExportPreview();
+      });
+    });
+    exportBtn.addEventListener("click", async () => {
+      if (exportBtn.disabled) return;
+      const authorizedToken = exportLoadedToken;
+      const rows = selectedExportBookings();
+      exportBusy = true;
+      updateExportPreview();
+      setStatus(exportStatus, "Δημιουργία Excel…", null);
+      try {
+        const XLSX = await loadExcelLibrary();
+        if (authorizedToken !== token() || exportLoadedToken !== authorizedToken) {
+          throw new Error("Ο κωδικός άλλαξε. Φορτώστε ξανά το ημερολόγιο.");
+        }
+        const workbook = BookingExport.buildWorkbook(XLSX, rows);
+        XLSX.writeFile(workbook, `KEDEEA_${toDateKey(new Date())}.xlsx`, { compression: true });
+        setStatus(exportStatus, `✅ Το Excel δημιουργήθηκε με ${rows.length} ραντεβού.`, "ok");
+      } catch (e) {
+        setStatus(exportStatus, "❌ " + e.message, "err");
+      } finally {
+        exportBusy = false;
+        updateExportPreview();
+      }
+    });
+
     // persist token in sessionStorage
     accessTokenInput.value = sessionStorage.getItem("accessToken") || "";
     accessTokenInput.addEventListener("input", () => {
       sessionStorage.setItem("accessToken", accessTokenInput.value.trim());
+      setStatus(exportStatus, "", null);
+      updateExportPreview();
     });
 
     // NEW: weekly UI
@@ -621,17 +766,25 @@
         const u = new URL(url);
         u.searchParams.set("callback", cb);
 
-        window[cb] = (data) => {
+        const script = document.createElement("script");
+        const cleanup = () => {
+          clearTimeout(timeout);
           delete window[cb];
           script.remove();
+        };
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error("JSONP timeout"));
+        }, 20000);
+
+        window[cb] = (data) => {
+          cleanup();
           resolve(data);
         };
 
-        const script = document.createElement("script");
         script.src = u.toString();
         script.onerror = () => {
-          delete window[cb];
-          script.remove();
+          cleanup();
           reject(new Error("JSONP load failed"));
         };
         document.body.appendChild(script);
@@ -639,24 +792,43 @@
     }
 
     async function loadBookings() {
+      exportLoadedToken = null;
+      updateExportPreview();
+      const requestToken = token();
+      if (!token()) {
+        baseRows = [];
+        bookings = [];
+        renderCalendar();
+        setStatus(authStatus, "Εισάγετε τον κωδικό πρόσβασης.", "err");
+        return;
+      }
       setStatus(authStatus, "Φόρτωση…", null);
 
       const u = new URL(SCRIPT_URL);
-      u.searchParams.set("token", token());
+      u.searchParams.set("token", requestToken);
       u.searchParams.set("action", "list");
 
       try {
         const res = await jsonp(u.toString());
+        if (token() !== requestToken) {
+          setStatus(authStatus, "Ο κωδικός άλλαξε. Πατήστε Φόρτωση / Ανανέωση.", "err");
+          return;
+        }
         if (!res?.ok) {
           baseRows = [];
           bookings = [];
           renderCalendar();
-          setStatus(authStatus, "❌ Μη έγκυρος κωδικός ή σφάλμα.", "err");
+          const message = res?.error === "Unauthorized"
+            ? "❌ Μη έγκυρος κωδικός πρόσβασης. Χρειάζεται ο κωδικός της εφαρμογής Google Apps Script."
+            : "❌ Σφάλμα διακομιστή: " + (res?.error || "Μη αναμενόμενη απάντηση.");
+          setStatus(authStatus, message, "err");
           return;
         }
 
         baseRows = normalizeRows(res.data);
         bookings = expandOccurrences(baseRows);
+        exportLoadedToken = requestToken;
+        updateExportFilters();
 
         setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
         renderCalendar();
@@ -664,7 +836,9 @@
         baseRows = [];
         bookings = [];
         renderCalendar();
-        setStatus(authStatus, "⚠️ Δεν ήταν δυνατή η φόρτωση (δες Console).", "err");
+        setStatus(authStatus, e.message === "JSONP timeout"
+          ? "⚠️ Ο διακομιστής δεν απάντησε εγκαίρως. Δοκιμάστε ξανά."
+          : "⚠️ Δεν ήταν δυνατή η σύνδεση με την εφαρμογή Google Apps Script. Ελέγξτε τη σύνδεση και την πρόσβαση στην εφαρμογή.", "err");
         console.error(e);
       }
     }
