@@ -319,6 +319,8 @@
         <select id="exportService"><option value="">Όλες οι υπηρεσίες</option></select>
         <div class="hint">Τα φίλτρα συνδυάζονται. Εξάγονται τα φορτωμένα ραντεβού, μαζί με τις εβδομαδιαίες εμφανίσεις και τις αλλαγές τους. Οι ακυρωμένες εμφανίσεις εξαιρούνται.</div>
         <p id="exportPreview" class="hint" role="status">Φορτώστε πρώτα το ημερολόγιο με τον κωδικό σας.</p>
+        <label for="superAdminPassword">Κωδικός Super Admin για εξαγωγή</label>
+        <input type="password" id="superAdminPassword" autocomplete="off" placeholder="Ξεχωριστός κωδικός εξαγωγής">
         <button type="button" id="exportBtn" disabled>Λήψη Excel (.xlsx)</button>
         <div class="status" id="exportStatus" role="status"></div>
       </details>
@@ -590,21 +592,41 @@
       const revision = authRevision;
       const filters = exportFilters();
       if (!filters.allMonths && !filters.months.length) return;
+      const adminInput = document.getElementById("superAdminPassword");
+      let adminPassword = adminInput.value;
+      adminInput.value = "";
+      if (!adminPassword) {
+        setStatus(exportStatus, "Απαιτείται κωδικός Super Admin για εξαγωγή.", "err");
+        adminInput.focus();
+        return;
+      }
       exportBusy = true;
       updateExportPreview();
       setStatus(exportStatus, "Έλεγχος πρόσβασης και δημιουργία Excel…", null);
       try {
-        // Revalidate on the server and export fresh data, never cached private rows.
-        const u = new URL(SCRIPT_URL);
-        u.searchParams.set("token", authorizedToken);
-        u.searchParams.set("action", "list");
-        u.searchParams.set("_", Date.now());
-        const response = await jsonp(u.toString());
+        // Credentials travel in the POST body, never in an export URL.
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 60000);
+        let response;
+        try {
+          const result = await fetch(SCRIPT_URL, {
+            method: "POST",
+            headers: { "Content-Type": "text/plain;charset=UTF-8" },
+            credentials: "omit",
+            cache: "no-store",
+            signal: controller.signal,
+            body: JSON.stringify({ action: "export", token: authorizedToken, adminPassword })
+          });
+          if (!result.ok) throw new Error("Η υπηρεσία εξαγωγής δεν ανταποκρίθηκε.");
+          response = await result.json();
+        } finally {
+          clearTimeout(timeout);
+          adminPassword = "";
+        }
         if (!response?.ok) {
-          revokeAccess();
-          throw new Error(response?.error === "Unauthorized"
-            ? "Μη έγκυρος κωδικός. Συνδεθείτε ξανά για εξαγωγή."
-            : "Δεν επιβεβαιώθηκε η πρόσβαση. Συνδεθείτε ξανά.");
+          throw new Error(response?.error === "ExportNotConfigured"
+            ? "Η εξαγωγή Super Admin δεν έχει ενεργοποιηθεί ακόμη."
+            : "Η εξαγωγή απορρίφθηκε. Ελέγξτε τους κωδικούς πρόσβασης.");
         }
         if (revision !== authRevision || authorizedToken !== token() || exportLoadedToken !== authorizedToken) {
           throw new Error("Η σύνδεση άλλαξε. Φορτώστε ξανά το ημερολόγιο.");
@@ -619,7 +641,7 @@
         XLSX.writeFile(workbook, `KEDEEA_${toDateKey(new Date())}.xlsx`, { compression: true });
         setStatus(exportStatus, `✅ Το Excel δημιουργήθηκε με ${rows.length} ραντεβού.`, "ok");
       } catch (e) {
-        setStatus(exportStatus, "❌ " + e.message, "err");
+        setStatus(exportStatus, "❌ " + (e.name === "AbortError" ? "Η εξαγωγή άργησε να ανταποκριθεί. Δοκιμάστε ξανά." : e.message), "err");
         if (exportLoadedToken === null) setStatus(authStatus, e.message, "err");
       } finally {
         exportBusy = false;
@@ -630,6 +652,7 @@
     function revokeAccess() {
       authRevision++;
       exportLoadedToken = null;
+      document.getElementById("superAdminPassword").value = "";
       baseRows = [];
       bookings = [];
       document.getElementById("exportPanel").open = false;
