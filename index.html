@@ -617,7 +617,7 @@
             signal: controller.signal,
             body: JSON.stringify({ action: "export", token: authorizedToken, adminPassword })
           });
-          if (!result.ok) throw new Error("Η υπηρεσία εξαγωγής δεν ανταποκρίθηκε.");
+          if (!result.ok) throw new Error(`Η υπηρεσία εξαγωγής δεν ανταποκρίθηκε (HTTP ${result.status}).`);
           response = await result.json();
         } finally {
           clearTimeout(timeout);
@@ -835,7 +835,7 @@
         const timeout = setTimeout(() => {
           cleanup();
           reject(new Error("JSONP timeout"));
-        }, 20000);
+        }, 60000);
 
         window[cb] = (data) => {
           cleanup();
