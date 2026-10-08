@@ -370,8 +370,15 @@
             <input name="room" required />
           </div>
           <div>
-            <label>Κλινικός εκπαιδευτής</label>
-            <input name="clinician" required />
+            <label for="clinicianSelect">Κλινικός εκπαιδευτής</label>
+            <select id="clinicianSelect" name="clinician" required>
+              <option value="">Φορτώστε πρώτα το ημερολόγιο</option>
+            </select>
+            <div id="newClinicianSection" hidden>
+              <label for="newClinicianName">Ονοματεπώνυμο νέου εκπαιδευτή</label>
+              <input id="newClinicianName" autocomplete="off" placeholder="Επώνυμο και όνομα">
+              <div class="hint">Θα προστεθεί στη λίστα όταν αποθηκευτεί το ραντεβού.</div>
+            </div>
           </div>
         </div>
 
@@ -657,6 +664,7 @@
       bookings = [];
       document.getElementById("exportPanel").open = false;
       updateExportFilters();
+      updateClinicianOptions();
       renderCalendar();
     }
 
@@ -726,10 +734,63 @@
       return s.slice(0,5);
     }
 
+    function clinicianKey(value) {
+      return String(value ?? "").trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("el").replace(/ς/g, "σ").replace(/\s+/g, " ");
+    }
+
+    // Explicit aliases observed in existing bookings; do not merge unrelated full names.
+    const clinicianAliases = new Map();
+    [
+      ["Βολτσάκη Ζαφειρία", "Βολτσάκη"],
+      ["Βουραζάνης Δημήτρης", "Βουραζάνης"],
+      ["Κάμινας Νικόλαος", "Κάμινας"],
+      ["Μπουχουράς Γιώργος"],
+      ["Νάκου Αγγελική", "Νάκου", "Νακου Αγγέλα", "ΝΑΚΟΥ ΑΓΓΕΛΙΚΗ"],
+      ["Νούσιου Σταματία"],
+      ["Σαφλιούκας Στέφανος", "Σαφλιούκας", "Στέφανος Σαφλιούκας"],
+      ["Σούλη Καλλιόπη", "Σούλη", "Σούλη Πόπη"]
+    ].forEach(([canonical, ...aliases]) => {
+      [canonical, ...aliases].forEach(alias => clinicianAliases.set(clinicianKey(alias), canonical));
+    });
+
+    function canonicalClinician(value) {
+      const cleaned = String(value ?? "").trim().replace(/\s+/g, " ");
+      return clinicianAliases.get(clinicianKey(cleaned)) || cleaned;
+    }
+
+    function updateClinicianOptions() {
+      const select = document.getElementById("clinicianSelect");
+      const previous = select.value;
+      const names = new Map();
+      bookings.forEach(row => {
+        const name = canonicalClinician(row.clinician);
+        if (name && !names.has(clinicianKey(name))) names.set(clinicianKey(name), name);
+      });
+      select.replaceChildren(new Option(exportLoadedToken === null
+        ? "Φορτώστε πρώτα το ημερολόγιο" : "Επιλέξτε εκπαιδευτή", ""));
+      [...names.values()].sort((a, b) => a.localeCompare(b, "el"))
+        .forEach(name => select.add(new Option(name, name)));
+      if (exportLoadedToken !== null) select.add(new Option("+ Νέος εκπαιδευτής…", "__new__"));
+      select.disabled = exportLoadedToken === null;
+      if ([...select.options].some(option => option.value === previous)) select.value = previous;
+      updateNewClinicianField();
+    }
+
+    function updateNewClinicianField() {
+      const isNew = document.getElementById("clinicianSelect").value === "__new__";
+      document.getElementById("newClinicianSection").hidden = !isNew;
+      const input = document.getElementById("newClinicianName");
+      input.required = isNew;
+      input.disabled = !isNew;
+      if (!isNew) input.value = "";
+    }
+
     function normalizeRows(arr) {
       return (arr || []).map(b => ({
         ...b,
         id: String(b.id ?? "").trim(),
+        clinician: canonicalClinician(b.clinician),
         date: toDateKey(b.date),
         time: toTimeHHMM(b.time),
         beneficiaryPhone: b.beneficiaryPhone != null ? String(b.beneficiaryPhone) : "",
@@ -798,7 +859,7 @@
               occurrenceDate: d,
               time: ov.time ? toTimeHHMM(ov.time) : r.time,
               room: ov.room ?? r.room,
-              clinician: ov.clinician ?? r.clinician,
+              clinician: canonicalClinician(ov.clinician ?? r.clinician),
               serviceType: ov.serviceType ?? r.serviceType,
               notes: ov.notes ?? r.notes,
               isOverride: !!overrides[d]
@@ -886,6 +947,7 @@
         bookings = expandOccurrences(baseRows);
         exportLoadedToken = requestToken;
         updateExportFilters();
+        updateClinicianOptions();
 
         setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
         renderCalendar();
@@ -1216,6 +1278,16 @@
       saveBtn.disabled = true;
 
       const data = Object.fromEntries(new FormData(event.target).entries());
+      if (data.clinician === "__new__") {
+        const entered = canonicalClinician(document.getElementById("newClinicianName").value);
+        const existing = bookings.find(row => clinicianKey(row.clinician) === clinicianKey(entered));
+        data.clinician = existing ? canonicalClinician(existing.clinician) : entered;
+        if (!data.clinician) {
+          setStatus(formStatus, "Συμπληρώστε το ονοματεπώνυμο του νέου εκπαιδευτή.", "err");
+          saveBtn.disabled = false;
+          return;
+        }
+      }
       data.notifyBeneficiary = document.getElementById("notifyBeneficiary").checked ? "true" : "false";
 
       // NEW: weekly params
@@ -1268,6 +1340,8 @@
       renderCalendar();
     });
 
+    document.getElementById("clinicianSelect").addEventListener("change", updateNewClinicianField);
+    bookingForm.addEventListener("reset", () => setTimeout(updateNewClinicianField, 0));
     refreshBtn.addEventListener("click", loadBookings);
 
     // initial load
