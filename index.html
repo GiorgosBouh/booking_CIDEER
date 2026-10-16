@@ -423,15 +423,16 @@
 
   <section class="card" id="teachingSchedulePanel" style="max-width:1060px;margin:24px auto;padding:20px;overflow-x:auto">
     <h2>Υποχρεωτικό πρόγραμμα κλινικών εκπαιδευτών</h2>
-    <p class="hint">Εβδομαδιαίο πρόγραμμα παρουσίας. Οι αλλαγές αποθηκεύονται για όλους με τον κωδικό Super Admin.</p>
+    <p class="hint">Για αλλαγή του υποχρεωτικού ωραρίου, πατήστε το κουμπί παρακάτω. Χρησιμοποιήστε τον ίδιο κωδικό Super Admin που ισχύει για το Excel. Οι αλλαγές αποθηκεύονται για όλους.</p>
     <div id="teachingScheduleTable"></div>
-    <button type="button" id="editTeachingSchedule" disabled>Επεξεργασία προγράμματος</button>
+    <button type="button" id="editTeachingSchedule" disabled>Αλλαγή ωραρίου με Super Admin</button>
     <form id="teachingScheduleForm" hidden>
+      <label for="teachingAdminPassword">Κωδικός Super Admin για αλλαγή ωραρίου</label>
+      <input id="teachingAdminPassword" type="password" autocomplete="off" required>
+      <p class="hint">Συμπληρώστε τον κωδικό, αλλάξτε τις ημέρες ή τις ώρες και πατήστε «Αποθήκευση αλλαγών ωραρίου».</p>
       <div id="teachingScheduleRows"></div>
       <button type="button" id="addTeachingSlot">+ Προσθήκη ωραρίου</button>
-      <label for="teachingAdminPassword">Κωδικός Super Admin</label>
-      <input id="teachingAdminPassword" type="password" autocomplete="off" required>
-      <button type="submit" id="saveTeachingSchedule">Αποθήκευση προγράμματος</button>
+      <button type="submit" id="saveTeachingSchedule">Αποθήκευση αλλαγών ωραρίου</button>
       <button type="button" id="cancelTeachingSchedule">Ακύρωση</button>
     </form>
     <p id="teachingScheduleStatus" class="status" role="status">Συνδεθείτε και φορτώστε το ημερολόγιο για ενημέρωση του προγράμματος.</p>
@@ -1434,6 +1435,7 @@
       if (!teachingScheduleReady || teachingSaving) return;
       document.getElementById("teachingScheduleRows").replaceChildren();
       teachingSchedule.rows.forEach(appendTeachingSlot); teachingForm.hidden = false;
+      document.getElementById("teachingAdminPassword").focus();
     });
     document.getElementById("addTeachingSlot").addEventListener("click", () => appendTeachingSlot());
     document.getElementById("cancelTeachingSchedule").addEventListener("click", () => {
