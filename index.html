@@ -399,6 +399,7 @@
           <label for="notifyBeneficiary"><input type="checkbox" id="notifyBeneficiary" name="notifyBeneficiary" value="true" /> Αποστολή email επιβεβαίωσης στον ωφελούμενο</label>
         </div>
         <div class="hint">Προαιρετικό. Αποστολή στο email του ωφελούμενου με ημέρα, ώρα, αίθουσα, Εγνατίας 46, Θεσσαλονίκη και τηλέφωνο 2314409000.</div>
+        <p class="hint">Με την καταχώρηση αποστέλλονται αυτόματα όλα τα συμπληρωμένα στοιχεία στη συντονίστρια και στον εκπαιδευτή, εφόσον έχει δηλωμένο email.</p>
         <button type="submit" id="saveBtn">Καταχώρηση</button>
         <div class="status" id="formStatus"></div>
       </form>
@@ -1353,6 +1354,17 @@
           setStatus(formStatus, "⚠️ Η καταχώρηση αποθηκεύτηκε, αλλά δεν επιβεβαιώθηκε η αποστολή email. Μην καταχωρήσετε ξανά το ίδιο ραντεβού.", "err");
         } else {
           setStatus(formStatus, "✅ Η καταχώρηση αποθηκεύτηκε.", "ok");
+        }
+        const staff = res.staffEmailStatus;
+        if (staff) {
+          const failed = staff.coordinator === "failed" || staff.clinician === "failed";
+          const staffMessage = failed
+            ? " ⚠️ Δεν επιβεβαιώθηκαν όλες οι ειδοποιήσεις εκπαιδευτή/συντονίστριας. Το ραντεβού έχει αποθηκευτεί· μην το καταχωρήσετε ξανά."
+            : staff.clinician === "skipped"
+              ? " Στάλθηκε αυτόματη ειδοποίηση στη συντονίστρια. Δεν υπάρχει δηλωμένο email για τον εκπαιδευτή."
+              : " Στάλθηκαν αυτόματες ειδοποιήσεις στον εκπαιδευτή και στη συντονίστρια.";
+          formStatus.textContent += staffMessage;
+          if (failed) formStatus.className = "status err";
         }
         event.target.reset();
 
