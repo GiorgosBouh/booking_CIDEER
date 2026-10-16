@@ -425,6 +425,7 @@
     <h2>Υποχρεωτικό πρόγραμμα κλινικών εκπαιδευτών</h2>
     <p class="hint">Για αλλαγή του υποχρεωτικού ωραρίου, πατήστε το κουμπί παρακάτω. Χρησιμοποιήστε τον ίδιο κωδικό Super Admin που ισχύει για το Excel. Οι αλλαγές αποθηκεύονται για όλους.</p>
     <div id="teachingScheduleTable"></div>
+    <button type="button" id="reloadTeachingSchedule">Φόρτωση / Ανανέωση ωραρίου</button>
     <button type="button" id="editTeachingSchedule" disabled>Αλλαγή ωραρίου με Super Admin</button>
     <form id="teachingScheduleForm" hidden>
       <label for="teachingAdminPassword">Κωδικός Super Admin για αλλαγή ωραρίου</label>
@@ -435,7 +436,7 @@
       <button type="submit" id="saveTeachingSchedule">Αποθήκευση αλλαγών ωραρίου</button>
       <button type="button" id="cancelTeachingSchedule">Ακύρωση</button>
     </form>
-    <p id="teachingScheduleStatus" class="status" role="status">Συνδεθείτε και φορτώστε το ημερολόγιο για ενημέρωση του προγράμματος.</p>
+    <p id="teachingScheduleStatus" class="status" role="status">Συμπληρώστε τον κωδικό πρόσβασης στην αρχή της σελίδας και πατήστε «Φόρτωση / Ανανέωση ωραρίου».</p>
   </section>
 
 
@@ -931,6 +932,23 @@
       });
     }
 
+    // Retry reads only: never repeat appointment writes after an uncertain response.
+    async function jsonpRead(url, stillCurrent, onRetry) {
+      const action = new URL(url).searchParams.get("action") || "list";
+      if (!["list", "schedule_get"].includes(action)) throw new Error("Read-only request required");
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (!stillCurrent()) throw new Error("Request superseded");
+        const request = new URL(url);
+        request.searchParams.set("_", Date.now());
+        try { return await jsonp(request.toString()); }
+        catch (error) {
+          if (attempt || !stillCurrent() || !["JSONP timeout", "JSONP load failed"].includes(error.message)) throw error;
+          if (onRetry) onRetry();
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
+
     async function loadBookings() {
       revokeAccess();
       const revision = authRevision;
@@ -949,7 +967,9 @@
       u.searchParams.set("action", "list");
 
       try {
-        const res = await jsonp(u.toString());
+        const res = await jsonpRead(u.toString(),
+          () => revision === authRevision && token() === requestToken,
+          () => setStatus(authStatus, "Η επικοινωνία με τη Google διακόπηκε. Γίνεται μία νέα προσπάθεια…", null));
         if (revision !== authRevision || token() !== requestToken) return;
         if (!res?.ok) {
           baseRows = [];
@@ -973,10 +993,10 @@
         renderCalendar();
       } catch (e) {
         if (revision !== authRevision) return;
-        revokeAccess();
+        // Access was revoked at the start; preserve independently verified timetable access.
         setStatus(authStatus, e.message === "JSONP timeout"
           ? "⚠️ Ο διακομιστής δεν απάντησε εγκαίρως. Δοκιμάστε ξανά."
-          : "⚠️ Δεν ήταν δυνατή η σύνδεση με την εφαρμογή Google Apps Script. Ελέγξτε τη σύνδεση και την πρόσβαση στην εφαρμογή.", "err");
+          : "⚠️ Η επικοινωνία με τη Google απέτυχε και στη δεύτερη προσπάθεια. Για το ωράριο δοκιμάστε το «Φόρτωση / Ανανέωση ωραρίου» στο τέλος της σελίδας.", "err");
         console.error(e);
       }
     }
@@ -1392,15 +1412,27 @@
       document.getElementById("editTeachingSchedule").disabled = true;
       document.getElementById("teachingAdminPassword").value = "";
       teachingForm.hidden = true;
-      setStatus(teachingStatus, "Φορτώστε το ημερολόγιο για ενημέρωση του προγράμματος.", null);
+      setStatus(teachingStatus, "Συμπληρώστε τον κωδικό πρόσβασης και πατήστε «Φόρτωση / Ανανέωση ωραρίου».", null);
     }
     async function loadTeachingSchedule() {
+      if (teachingSaving) return;
       const revision = authRevision, access = token();
+      if (!access) {
+        setStatus(teachingStatus, "Συμπληρώστε πρώτα τον κωδικό πρόσβασης στην αρχή της σελίδας.", "err");
+        accessTokenInput.focus(); return;
+      }
+      teachingScheduleReady = false;
+      document.getElementById("editTeachingSchedule").disabled = true;
+      teachingForm.hidden = true;
+      document.getElementById("teachingAdminPassword").value = "";
+      setStatus(teachingStatus, "Φόρτωση ωραρίου…", null);
       try {
         const url = new URL(SCRIPT_URL);
         url.searchParams.set("action", "schedule_get"); url.searchParams.set("token", access);
         url.searchParams.set("_", Date.now());
-        const response = await jsonp(url.toString());
+        const response = await jsonpRead(url.toString(),
+          () => revision === authRevision && access === token(),
+          () => setStatus(teachingStatus, "Η επικοινωνία με τη Google διακόπηκε. Γίνεται μία νέα προσπάθεια…", null));
         if (revision !== authRevision || access !== token()) return;
         if (!response?.ok || !Array.isArray(response.schedule?.rows)) throw Error("Δεν φορτώθηκε το ενημερωμένο πρόγραμμα. Πατήστε Φόρτωση / Ανανέωση για νέα προσπάθεια.");
         teachingSchedule = response.schedule; teachingScheduleReady = true;
@@ -1431,6 +1463,7 @@
       remove.addEventListener("click", () => row.remove()); row.appendChild(remove);
       document.getElementById("teachingScheduleRows").appendChild(row);
     }
+    document.getElementById("reloadTeachingSchedule").addEventListener("click", loadTeachingSchedule);
     document.getElementById("editTeachingSchedule").addEventListener("click", () => {
       if (!teachingScheduleReady || teachingSaving) return;
       document.getElementById("teachingScheduleRows").replaceChildren();
