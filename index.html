@@ -421,6 +421,23 @@
     </section>
   </main>
 
+  <section class="card" id="teachingSchedulePanel" style="max-width:1060px;margin:24px auto;padding:20px;overflow-x:auto">
+    <h2>Υποχρεωτικό πρόγραμμα κλινικών εκπαιδευτών</h2>
+    <p class="hint">Εβδομαδιαίο πρόγραμμα παρουσίας. Οι αλλαγές αποθηκεύονται για όλους με τον κωδικό Super Admin.</p>
+    <div id="teachingScheduleTable"></div>
+    <button type="button" id="editTeachingSchedule" disabled>Επεξεργασία προγράμματος</button>
+    <form id="teachingScheduleForm" hidden>
+      <div id="teachingScheduleRows"></div>
+      <button type="button" id="addTeachingSlot">+ Προσθήκη ωραρίου</button>
+      <label for="teachingAdminPassword">Κωδικός Super Admin</label>
+      <input id="teachingAdminPassword" type="password" autocomplete="off" required>
+      <button type="submit" id="saveTeachingSchedule">Αποθήκευση προγράμματος</button>
+      <button type="button" id="cancelTeachingSchedule">Ακύρωση</button>
+    </form>
+    <p id="teachingScheduleStatus" class="status" role="status">Συνδεθείτε και φορτώστε το ημερολόγιο για ενημέρωση του προγράμματος.</p>
+  </section>
+
+
   <!-- Modal for edit -->
   <div class="modal-backdrop" id="modalBackdrop">
     <div class="modal">
@@ -658,6 +675,7 @@
 
     function revokeAccess() {
       authRevision++;
+      if (typeof resetTeachingScheduleAccess === "function") resetTeachingScheduleAccess();
       exportLoadedToken = null;
       document.getElementById("superAdminPassword").value = "";
       baseRows = [];
@@ -948,6 +966,7 @@
         exportLoadedToken = requestToken;
         updateExportFilters();
         updateClinicianOptions();
+        loadTeachingSchedule();
 
         setStatus(authStatus, "✅ Πρόσβαση επιβεβαιώθηκε. Το ημερολόγιο φορτώθηκε.", "ok");
         renderCalendar();
@@ -1343,6 +1362,119 @@
     document.getElementById("clinicianSelect").addEventListener("change", updateNewClinicianField);
     bookingForm.addEventListener("reset", () => setTimeout(updateNewClinicianField, 0));
     refreshBtn.addEventListener("click", loadBookings);
+
+    const teachingDays = ["", "Δευτέρα", "Τρίτη", "Τετάρτη", "Πέμπτη", "Παρασκευή", "Σάββατο", "Κυριακή"];
+    const defaultTeachingRows = [{"clinician": "Νούσιου", "day": 3, "start": "18:00", "end": "20:00"}, {"clinician": "Νούσιου", "day": 4, "start": "12:00", "end": "14:00"}, {"clinician": "Ψωμάς", "day": 1, "start": "17:00", "end": "20:00"}, {"clinician": "Ψωμάς", "day": 2, "start": "17:00", "end": "19:00"}, {"clinician": "Ψωμάς", "day": 3, "start": "17:00", "end": "20:00"}, {"clinician": "Σαφλιούκας", "day": 2, "start": "17:00", "end": "21:00"}, {"clinician": "Σαφλιούκας", "day": 4, "start": "17:00", "end": "21:00"}, {"clinician": "Νάκου", "day": 1, "start": "17:00", "end": "19:00"}, {"clinician": "Νάκου", "day": 3, "start": "17:00", "end": "19:00"}, {"clinician": "Σούλη", "day": 1, "start": "15:00", "end": "17:00"}];
+    let teachingSchedule = { revision: "initial", rows: defaultTeachingRows };
+    let teachingScheduleReady = false;
+    let teachingSaving = false;
+    const teachingStatus = document.getElementById("teachingScheduleStatus");
+    const teachingForm = document.getElementById("teachingScheduleForm");
+    function renderTeachingSchedule() {
+      const table = document.createElement("table");
+      table.style.cssText = "width:100%;text-align:left;border-collapse:collapse";
+      const header = table.createTHead().insertRow();
+      ["Κλινικός εκπαιδευτής", "Ημέρα", "Ώρες"].forEach(text => {
+        const th = document.createElement("th"); th.textContent = text; header.appendChild(th);
+      });
+      const body = table.createTBody();
+      teachingSchedule.rows.forEach(slot => {
+        const row = body.insertRow();
+        [slot.clinician, teachingDays[slot.day], `${slot.start}–${slot.end}`].forEach(text => {
+          const cell = row.insertCell(); cell.textContent = text; cell.style.padding = "8px 4px";
+        });
+      });
+      document.getElementById("teachingScheduleTable").replaceChildren(table);
+    }
+    function resetTeachingScheduleAccess() {
+      teachingScheduleReady = false;
+      document.getElementById("editTeachingSchedule").disabled = true;
+      document.getElementById("teachingAdminPassword").value = "";
+      teachingForm.hidden = true;
+      setStatus(teachingStatus, "Φορτώστε το ημερολόγιο για ενημέρωση του προγράμματος.", null);
+    }
+    async function loadTeachingSchedule() {
+      const revision = authRevision, access = token();
+      try {
+        const url = new URL(SCRIPT_URL);
+        url.searchParams.set("action", "schedule_get"); url.searchParams.set("token", access);
+        url.searchParams.set("_", Date.now());
+        const response = await jsonp(url.toString());
+        if (revision !== authRevision || access !== token()) return;
+        if (!response?.ok || !Array.isArray(response.schedule?.rows)) throw Error("Δεν φορτώθηκε το ενημερωμένο πρόγραμμα. Πατήστε Φόρτωση / Ανανέωση για νέα προσπάθεια.");
+        teachingSchedule = response.schedule; teachingScheduleReady = true;
+        renderTeachingSchedule();
+        document.getElementById("editTeachingSchedule").disabled = false;
+        setStatus(teachingStatus, "Το πρόγραμμα ενημερώθηκε.", "ok");
+      } catch (error) {
+        if (revision === authRevision) setStatus(teachingStatus, "Εμφανίζεται η τελευταία διαθέσιμη έκδοση. " + error.message, "err");
+      }
+    }
+    function appendTeachingSlot(slot = { clinician: "", day: 1, start: "", end: "" }) {
+      const row = document.createElement("div"); row.className = "teaching-slot";
+      row.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;align-items:end";
+      function field(label, control) {
+        const wrap = document.createElement("label"); wrap.textContent = label;
+        wrap.appendChild(control); row.appendChild(wrap); return control;
+      }
+      const name = document.createElement("input"); name.value = slot.clinician; name.required = true; name.maxLength = 100; name.dataset.field = "clinician";
+      field("Εκπαιδευτής", name);
+      const day = document.createElement("select"); day.dataset.field = "day";
+      teachingDays.slice(1).forEach((label, i) => day.add(new Option(label, String(i + 1)))); day.value = slot.day;
+      field("Ημέρα", day);
+      ["start", "end"].forEach(key => {
+        const input = document.createElement("input"); input.type = "time"; input.required = true; input.value = slot[key]; input.dataset.field = key;
+        field(key === "start" ? "Από" : "Έως", input);
+      });
+      const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "Αφαίρεση";
+      remove.addEventListener("click", () => row.remove()); row.appendChild(remove);
+      document.getElementById("teachingScheduleRows").appendChild(row);
+    }
+    document.getElementById("editTeachingSchedule").addEventListener("click", () => {
+      if (!teachingScheduleReady || teachingSaving) return;
+      document.getElementById("teachingScheduleRows").replaceChildren();
+      teachingSchedule.rows.forEach(appendTeachingSlot); teachingForm.hidden = false;
+    });
+    document.getElementById("addTeachingSlot").addEventListener("click", () => appendTeachingSlot());
+    document.getElementById("cancelTeachingSchedule").addEventListener("click", () => {
+      teachingForm.hidden = true; document.getElementById("teachingAdminPassword").value = "";
+    });
+    teachingForm.addEventListener("submit", async event => {
+      event.preventDefault();
+      if (!teachingScheduleReady || teachingSaving) return;
+      const access = token(), revision = authRevision;
+      const rows = [...document.querySelectorAll(".teaching-slot")].map(row => Object.fromEntries(
+        [...row.querySelectorAll("[data-field]")].map(input => [input.dataset.field, input.dataset.field === "day" ? Number(input.value) : input.value.trim()])
+      ));
+      if (!rows.length || rows.some(row => !row.clinician || !row.start || !row.end || row.start >= row.end)) {
+        setStatus(teachingStatus, "Συμπληρώστε τουλάχιστον ένα ωράριο, με ώρα λήξης μετά την έναρξη.", "err"); return;
+      }
+      const password = document.getElementById("teachingAdminPassword");
+      const payload = { action: "schedule_save", token: access, adminPassword: password.value, revision: teachingSchedule.revision, rows };
+      password.value = ""; teachingSaving = true;
+      document.getElementById("saveTeachingSchedule").disabled = true;
+      setStatus(teachingStatus, "Αποθήκευση προγράμματος…", null);
+      const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 60000);
+      try {
+        const result = await fetch(SCRIPT_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=UTF-8" }, credentials: "omit", signal: controller.signal, body: JSON.stringify(payload) });
+        payload.adminPassword = "";
+        if (!result.ok) throw Error("Η υπηρεσία δεν ανταποκρίθηκε. Φορτώστε ξανά για έλεγχο της αποθήκευσης.");
+        const response = await result.json();
+        if (revision !== authRevision || access !== token()) return;
+        if (!response.ok) {
+          const messages = { Unauthorized: "Λανθασμένος κωδικός Super Admin.", ScheduleConflict: "Το πρόγραμμα άλλαξε από άλλον χρήστη. Φορτώστε ξανά πριν το επεξεργαστείτε.", OverlappingSchedule: "Υπάρχουν επικαλυπτόμενα ωράρια για τον ίδιο εκπαιδευτή.", InvalidSchedule: "Ελέγξτε τα ονόματα, τις ημέρες και τις ώρες.", ScheduleBusy: "Γίνεται άλλη αποθήκευση. Δοκιμάστε ξανά." };
+          throw Error(messages[response.error] || "Δεν αποθηκεύτηκε το πρόγραμμα.");
+        }
+        teachingSchedule = response.schedule; renderTeachingSchedule(); teachingForm.hidden = true;
+        setStatus(teachingStatus, "Το πρόγραμμα αποθηκεύτηκε για όλους.", "ok");
+      } catch (error) {
+        if (revision === authRevision) setStatus(teachingStatus, error.name === "AbortError" ? "Η αναμονή έληξε. Φορτώστε ξανά για έλεγχο της αποθήκευσης." : error.message, "err");
+      } finally {
+        clearTimeout(timeout); payload.adminPassword = ""; teachingSaving = false;
+        document.getElementById("saveTeachingSchedule").disabled = false;
+      }
+    });
+    renderTeachingSchedule();
 
     // initial load
     loadBookings();
